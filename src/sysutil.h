@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include "types.h"
 #include "debug.h"
 
 /*
@@ -29,4 +30,4 @@ These are #defines we may get from gcc.
 #define NOFUNC() dbg_f("This platform has no support for function: %s", __func__)
 
 size_t get_file_size(const char *filename);
-size_t read_file(const char *filename, char *buf, size_t max_len);
+size_t read_file(const char *filename, byte *buf, size_t max_len);

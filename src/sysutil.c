@@ -3,6 +3,7 @@
 #include <errno.h>
 
 #include "sysutil.h"
+#include "types.h"
 #include "debug.h"
 #include "config.h"
 
@@ -27,7 +28,7 @@ size_t get_file_size(const char *filename)
 #endif
 }
 
-size_t read_file(const char *filename, char *buf, size_t max_len)
+size_t read_file(const char *filename, byte *buf, size_t max_len)
 {
 	FILE *fp;
 	size_t n;

@@ -6,6 +6,8 @@
 #include "types.h"
 #include "config.h"
 
+#define GENESIS_MEMORY_LEN 0xFFFFFF
+
 /*
 endianness definition
 uses autoconf's WORDS_BIGENDIAN and makes a #define I'm happier with
@@ -27,7 +29,7 @@ struct memory
 	byte *data;
 };
 
-int memory_init(struct memory *mem, size_t mem_len);
+int memory_init(struct memory *mem);
 /*
 sets the memory pointed to by 'n' to the data at the given memory address.
 'size' bytes will be written so 'n' must have enough bytes allocated.
@@ -47,4 +49,5 @@ void swap_bytes(byte *b, int len);
 gint be_to_host_gint(gint n);
 glong be_to_host_glong(glong n);
 gword be_to_host_gword(gword n);
+int decode_integer(int val, int size);
 #endif /* __MEMORY_H__ */

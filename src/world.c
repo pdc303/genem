@@ -1,6 +1,6 @@
 #include "world.h"
 
-int world_init(struct world *w, size_t mem_len)
+int world_init(struct world *w)
 {
 	int result;
 
@@ -8,7 +8,7 @@ int world_init(struct world *w, size_t mem_len)
 
 	result = m68000_reset(PWORLD_PM68K(w));
 
-	result |= memory_init(PWORLD_PMEM(w), mem_len);
+	result |= memory_init(PWORLD_PMEM(w));
 
 	return result;
 }

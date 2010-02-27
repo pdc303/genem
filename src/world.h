@@ -52,6 +52,6 @@ struct world
 	struct memory mem;
 };
 
-int world_init(struct world *w, size_t mem_len);
+int world_init(struct world *w);
 
 #endif /* __WORLD_H__ */
