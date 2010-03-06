@@ -113,7 +113,9 @@ representing the fake operand in particular
 
 
 /* SHIFTROTBIT */
-#define INST_SHIFTROTBIT_IS_LSD(inst) ((BITS_6_7(inst) != 0x3) && (BITS_3_4(inst) == 0x1))
+#define INST_SHIFTROTBIT_IS_LSD(inst) \
+		(((BITS_6_7(inst) != 0x3) && (BITS_3_4(inst) == 0x1)) || \
+		((BITS_6_7(inst) == 0x3) && (BITS_9_15(inst) == 0x71)))
 
 /* affect the PC by one instruction */
 #define PM68000_PC_INC(m) ((m->pc) += sizeof(gword))
@@ -248,6 +250,12 @@ but will produce non-zero and as such are appropriate for testing
 #define CCR_Z_UNSET(status) (status ^= CCR_Z_BITVAL)
 #define CCR_N_UNSET(status) (status ^= CCR_N_BITVAL)
 #define CCR_X_UNSET(status) (status ^= CCR_X_BITVAL)
+
+#define CCR_C_SETX(status, n) (n ? CCR_C_SET(status) : CCR_C_UNSET(status));
+#define CCR_V_SETX(status, n) (n ? CCR_V_SET(status) : CCR_V_UNSET(status));
+#define CCR_Z_SETX(status, n) (n ? CCR_Z_SET(status) : CCR_Z_UNSET(status));
+#define CCR_N_SETX(status, n) (n ? CCR_N_SET(status) : CCR_N_UNSET(status));
+#define CCR_X_SETX(status, n) (n ? CCR_X_SET(status) : CCR_X_UNSET(status));
 
 
 

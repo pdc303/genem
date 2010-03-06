@@ -23,6 +23,7 @@ const char* opcode_names[256] =
 	[OPCODE_LEA] = "LEA",
 	[OPCODE_ANDI] = "AND.I",
 	[OPCODE_AND] = "AND",
+	[OPCODE_LSD] = "LSL/LSR",
 };
 
 int m68000_init(struct m68000 *m68k)
@@ -105,8 +106,10 @@ int m68000_exec(struct m68000 *m68k, struct memory *mem, int *cycles)
 			break;
 		case OPCODE_OR:
 			result = m68000_exec_or(m68k, mem, inst, cycles);
+			break;
 		case OPCODE_LSD:
 			result = m68000_exec_lsd(m68k, mem, inst, cycles);
+			break;
 		case OPCODE_MULU:
 		case OPCODE_ABCD:
 		case OPCODE_MULS:
@@ -282,10 +285,16 @@ int m68000_inst_get_operand_info(struct m68000 *m68k, struct memory *mem, gword 
 			switch(ea_register) {
 				case EA_REGISTER_PROGRAM_COUNTER_INDIRECT_DISPLACEMENT:
 				{
-					gword displacement;
+					gword displacement, displacement_base;
+					/*
+					the displacement is relative to the address
+					of the extension word so save this address now
+					*/
+					displacement_base = m68k->pc;
+
 					PM68000_GET_NEXT_INSTRUCTION(m68k, &displacement);
 					oi->type = OPERAND_TYPE_INDIRECT;
-					oi->address = (size_t) (m68k->pc + displacement);
+					oi->address = (size_t) (displacement_base + displacement);
 					goto m68000_inst_get_source_info_out;
 				}
 				case EA_REGISTER_PROGRAM_COUNTER_INDIRECT_INDEX:
@@ -431,6 +440,7 @@ int m68000_inst_get_operand_size(struct m68000 *m68k, struct memory *mem, gword 
 			break;
 		case OPCODE_ANDI:
 		case OPCODE_TST:
+		case OPCODE_LSD:
 				size_format = 2;
 				size = BITS_6_7(inst);
 			break;
@@ -845,6 +855,9 @@ void m68000_register_set(struct m68000 *m68k, enum M68000_REGISTER reg, glong va
 				/* clear the lower word */
 				*(glong *)(m68k->register_pointers[reg]) &= ~0xFFFF;
 				break;
+			case sizeof(glong):
+				*(glong *)(m68k->register_pointers[reg]) = 0;
+				break;
 		}
 
 		/* merge the value */
@@ -888,5 +901,93 @@ glong m68000_register_get(struct m68000 *m68k, enum M68000_REGISTER reg, int siz
 
 int m68000_exec_lsd(struct m68000 *m68k, struct memory *mem, gword inst, int *cycles)
 {
+	int ir, dr, cr, size, reg, shift_count;
+	int shift_type;
+	struct operand_info ea;
+	int result;
+	glong to_shift;
+
+#define LSD_REGISTER_SHIFT 0
+#define LSD_MEMORY_SHIFT 1
+
+	result = 0;
+	
+	dr = BITS_8(inst);
+
+	if(BITS_6_7(inst) == 0x3) {
+		shift_type = LSD_MEMORY_SHIFT;
+	} else {
+		shift_type = LSD_REGISTER_SHIFT;
+	}
+
+	if(shift_type == LSD_REGISTER_SHIFT) {
+
+		ir = BITS_5(inst);
+		size = m68000_inst_get_operand_size(m68k, mem, inst);
+		reg = M68000_REGISTER_D0 + INST_SOURCE_EA_REGISTER(inst);
+
+		to_shift = m68000_register_get(m68k, reg, size, 0);
+
+		/*
+		shift count: immediate or register?
+		ir = 0: this field contains the shift count.
+		ir = 1: shift count = register contents % 64.
+		*/
+		cr = BITS_9_11(inst);
+
+		if(ir == 0) {
+			shift_count = cr;
+			if(cr == 0) {
+				shift_count = 8;
+			}
+		} else {
+			/*
+			presuming the register value does not need 2c decoding as a negative
+			value would not make sense
+			*/
+			shift_count = m68000_register_get(m68k, reg, size, 0);
+		}
+	} else {
+		shift_count = 1;
+		size = sizeof(gword);
+		result = m68000_inst_get_operand_info(m68k, mem, inst,
+						OPERAND_ONE, &ea, &size);
+		to_shift = m68000_inst_get_operand_source_val(m68k, mem, &ea, size);
+
+	}
+
+	if(dr == 0) {
+		/* right shift */
+		if(shift_count > 0) {
+			CCR_X_SETX(m68k->status, get_bit(to_shift, shift_count - 1));
+			CCR_C_SETX(m68k->status, CCR_X(m68k->status));
+		} else {
+			CCR_C_UNSET(m68k->status);
+		}
+		to_shift >>= shift_count;
+	} else {
+		/* left shift */
+		if(shift_count > 0) {
+			CCR_X_SETX(m68k->status, 
+				get_bit(to_shift, ((size * 8) - 1) - shift_count + 1));
+			CCR_C_SETX(m68k->status, CCR_X(m68k->status));
+		} else {
+			CCR_C_UNSET(m68k->status);
+		}
+		to_shift <<= shift_count;
+	}
+
+	CCR_N_SETX(m68k->status, (to_shift < 0));
+	CCR_Z_SETX(m68k->status, (to_shift == 0));
+	CCR_Z_UNSET(m68k->status);
+
+	/* now to put the shifted value in the dest */
+
+	if(shift_type == LSD_REGISTER_SHIFT) {
+		m68000_register_set(m68k, reg, to_shift, size);
+	} else {
+		m68000_inst_set_operand_dest(m68k, mem, &ea, to_shift, size);
+	}
+
 	return 0;
 }

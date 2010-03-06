@@ -69,3 +69,8 @@ glong decode_2c(glong val, int size)
 
 	return result;
 }
+
+int get_bit(int src, int bitno)
+{
+	return (src >> bitno) & 0x01;
+}
