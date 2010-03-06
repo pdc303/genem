@@ -6,7 +6,7 @@ int world_init(struct world *w)
 
 	result = 0;
 
-	result = m68000_reset(PWORLD_PM68K(w));
+	result = m68000_init(PWORLD_PM68K(w));
 
 	result |= memory_init(PWORLD_PMEM(w));
 

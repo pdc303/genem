@@ -3,9 +3,14 @@
 
 #include "types.h"
 #include "memory.h"
+#include "stack.h"
+#include "bitman.h"
+
+#define SYSTEM_STACK_SIZE 65536 // 64k
 
 #define OPERAND_SOURCE 0
 #define OPERAND_DEST 1
+#define OPERAND_ONE OPERAND_SOURCE
 
 /* expose the Effective Address Register (sub)field of an instruction word */
 #define INST_SOURCE_EA_REGISTER(n) (n & 0x07)
@@ -20,11 +25,45 @@
 #define INST_OPCODE_IS_MOVE(n) ((!(n & 0x3)) && (n))
 
 /* opcodes bit patterns corresponding numbers */
+/* real opcodes */
+#define OPCODE_BITMANIP 0x00
 #define OPCODE_MOVEB 0x01
 #define OPCODE_MOVEL 0x02
 #define OPCODE_MOVEW 0x03
 #define OPCODE_MISC 0x04
-#define OPCODE_BRANCH 0x6
+#define OPCODE_BRANCH 0x06
+#define OPCODE_ANDMUL 0x0C
+#define OPCODE_ORDIVSBCD 0x08
+#define OPCODE_SHIFTROTBIT 0xE
+
+/* fake opcodes */
+/*
+When a single opcode and represent more than one instruction,
+the individual instruction types will be given a fake opcode.
+
+A real opcode is 4 bits long so every fake opcode will have its lower
+4 bits equal to the real opcode it falls under, with the higher 4 bits
+representing the fake operand in particular
+*/
+
+#define GENERATE_FAKE_OPCODE(real, offset) (((offset + 1) << 4) | real)
+#define REAL_OPCODE(full) (full & 0xF)
+
+#define OPCODE_TST GENERATE_FAKE_OPCODE(OPCODE_MISC, 0)
+#define OPCODE_LEA GENERATE_FAKE_OPCODE(OPCODE_MISC, 1)
+
+#define OPCODE_ANDI GENERATE_FAKE_OPCODE(OPCODE_BITMANIP, 0)
+
+#define OPCODE_MULU GENERATE_FAKE_OPCODE(OPCODE_ANDMUL, 0)
+#define OPCODE_ABCD GENERATE_FAKE_OPCODE(OPCODE_ANDMUL, 1)
+#define OPCODE_MULS GENERATE_FAKE_OPCODE(OPCODE_ANDMUL, 2)
+#define OPCODE_AND GENERATE_FAKE_OPCODE(OPCODE_ANDMUL, 3)
+#define OPCODE_EXG GENERATE_FAKE_OPCODE(OPCODE_ANDMUL, 4)
+
+#define OPCODE_OR GENERATE_FAKE_OPCODE(OPCODE_ORDIVSBCD, 0)
+
+/* LSd (LSL, LSR) */
+#define OPCODE_LSD GENERATE_FAKE_OPCODE(OPCODE_SHIFTROTBIT, 0)
 
 /* SIZE field values */
 
@@ -36,7 +75,9 @@
 /* MISC */
 
 /* is this MISC instruction a TST ? */
-#define INST_MISC_IS_TST(inst) (BITS_6_7(inst) != 3)
+//#define INST_MISC_IS_TST(inst) (BITS_6_7(inst) != 3)
+#define INST_MISC_IS_TST(inst) ((BITS_6_7(inst) != 0x3) && (BITS_8_15(inst) == 0x4A))
+#define INST_MISC_IS_LEA(inst) ((BITS_12_15(inst) == 0x4) && (BITS_6_8(inst) == 0x7))
 
 /* BRANCH */
 #define CONDITION_BRA 0x0
@@ -56,11 +97,31 @@
 #define CONDITION_GT 0xE
 #define CONDITION_LE 0xF
 
+#define INST_BITMANIP_IS_ANDI(inst) (BITS_8_15(inst) == 0x2)
 
+/* ANDMUL */
+
+#define INST_ANDMUL_IS_MULU(inst) (BITS_6_8(inst) == 0x3)
+#define INST_ANDMUL_IS_ABCD(inst) (BITS_4_8(inst) == 0x10)
+#define INST_ANDMUL_IS_MULS(inst) (BITS_6_8(inst) == 0x7)
+#define INST_ANDMUL_IS_AND(inst) (BITS_6_8(inst) != 0x3)
+#define INST_ANDMUL_IS_EXG(inst) (BITS_8(inst))
+
+/* ORDIVSBCD */
+
+#define INST_ORDIVSBCD_IS_OR(inst) (BITS_6_8(inst) != 0x3)
+
+
+/* SHIFTROTBIT */
+#define INST_SHIFTROTBIT_IS_LSD(inst) ((BITS_6_7(inst) != 0x3) && (BITS_3_4(inst) == 0x1))
+
+/* affect the PC by one instruction */
 #define PM68000_PC_INC(m) ((m->pc) += sizeof(gword))
 #define M68000_PC_INC(m) ((m.pc) += sizeof(gword))
-#define PM68000_PC_INCX(m, x) ((m->pc) += (x * sizeof(gword)))
-#define M68000_PC_INCX(m, x) ((m.pc) += (x * sizeof(gword)))
+
+/* affect the PC by 'x' bytes */
+#define PM68000_PC_INCX(m, x) (m->pc += x)
+#define M68000_PC_INCX(m, x) (m.pc += x)
 
 /* increase or decrease an m68k register value by x */
 #define PM68000_REG_INCX(m, reg, x) (m->reg += x)
@@ -82,6 +143,7 @@ PM68000_REG_OFF_INCX(m, d, 4, 6)
 #define PM68000_REG_OFF_PTR(m, regtype, offset) (&(m->regtype##0) + offset)
 /* get the value of a register when you know its type and offset */
 #define PM68000_REG_OFF_VAL(m, regtype, offset) (*(&(m->regtype##0) + offset))
+#define PM68000_REG_OFF_SET(m, regtype, offset, val) (*(&(m->regtype##0) + offset) = val)
 
 #define PM68000_GET_NEXT_INSTRUCTION(m68k, ret_ptr) \
 			PM68000_GET_INSTRUCTION(m68k, 0, ret_ptr)
@@ -89,22 +151,6 @@ PM68000_REG_OFF_INCX(m, d, 4, 6)
 #define PM68000_GET_INSTRUCTION(m68k, offset, ret_ptr) \
 			memory_request_easy(m68k->pc + offset, gword, ret_ptr),\
 			PM68000_PC_INC(m68k)
-
-/* macros to extract numbers from numbers */
-/* get Byte from a Word */
-#define WORD_BYTE(w) BITS_0_7(w)
-/* get bits 0 to 7 of a value */
-#define BITS_0_7(w) (w & 0xFF)
-/* get bits 6 and 7 of a value */
-#define BITS_6_7(w) ((w & 0xC0) >> 6)
-#define BITS_8_11(w) ((w & 0xF00) >> 8)
-#define BITS_12_13(w) ((w & 0x3000) >> 12)
-#define BITS_7(w) ((w & 0x80) >> 7)
-#define BITS_15(w) ((w & 0x8000) >> 15)
-#define BITS_31(w) ((w & 0x80000000) >> 31)
-
-#define LONG_BYTE(l) WORD_BYTE(l)
-#define LONG_WORD(l) (l & 0xFFFF)
 
 /* effective address modes */
 
@@ -285,6 +331,7 @@ struct m68000
 	glong fpsr;
 	glong fpiar;
 	void *register_pointers[M68000_REGISTER_NUM];
+	struct stack system_stack;
 };
 
 enum OPERAND_TYPE {
@@ -300,7 +347,7 @@ struct operand_info
 	int reg;
 	//glong *reg_ptr;
 	glong address;
-	int data_int;
+	glong data_int;
 };
 
 /* reset an m68k to an all-zero state */
@@ -313,13 +360,24 @@ int m68000_inst_get_operand_size(struct m68000 *m68k, struct memory *mem, gword 
 int m68000_inst_get_operand_source_val(struct m68000 *m68k, struct memory *mem,
 							struct operand_info *oi, int size);
 int m68000_inst_set_operand_dest(struct m68000 *m68k, struct memory *mem,
-					struct operand_info *oi, int size, int val);
+					struct operand_info *oi, glong val, int size);
 int m68000_exec(struct m68000 *m68k, struct memory *mem, int *cycles);
+int m68000_decode_opcode(gword inst);
 int m68000_exec_move(struct m68000 *m68k, struct memory *mem, gword inst, int size,
 							int *cycles);
 int m68000_exec_misc(struct m68000 *m68k, struct memory *mem, gword inst, int *cycles);
 int m68000_exec_tst(struct m68000 *m68k, struct memory *mem, gword inst, int *cycles);
 int m68000_exec_branch(struct m68000 *m68k, struct memory *mem, gword inst, int *cycles);
 int m68000_test_condition(struct m68000 *m68k, int condition, int *cycles);
+int m68000_exec_bitmanip(struct m68000 *m68k, struct memory *mem, gword inst, int *cycles);
+int m68000_exec_andi(struct m68000 *m68k, struct memory *mem, gword inst, int *cycles);
+int m68000_exec_lea(struct m68000 *m68k, struct memory *mem, gword inst, int *cycles);
+int m68000_exec_and(struct m68000 *m68k, struct memory *mem, gword inst, int *cycles);
+int m68000_exec_or(struct m68000 *m68k, struct memory *mem, gword inst, int *cycles);
+int m68000_exec_and_or(struct m68000 *m68k, struct memory *mem, gword inst, int *cycles,
+				enum BITWISE_OPERATION bop);
+void m68000_register_set(struct m68000 *m68k, enum M68000_REGISTER reg, glong val, int size);
+glong m68000_register_get(struct m68000 *m68k, enum M68000_REGISTER reg, int size, int decode);
+int m68000_exec_lsd(struct m68000 *m68k, struct memory *mem, gword inst, int *cycles);
 
 #endif /* __M68000_H__ */

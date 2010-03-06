@@ -49,5 +49,4 @@ void swap_bytes(byte *b, int len);
 gint be_to_host_gint(gint n);
 glong be_to_host_glong(glong n);
 gword be_to_host_gword(gword n);
-int decode_integer(int val, int size);
 #endif /* __MEMORY_H__ */

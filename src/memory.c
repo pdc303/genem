@@ -5,7 +5,7 @@
 #include "memory.h"
 #include "sysmem.h"
 #include "debug.h"
-#include "m68000.h" /* bit extraction macros */
+#include "bitman.h" /* bit extraction macros */
 
 int memory_init(struct memory *mem)
 {
@@ -97,46 +97,3 @@ void swap_bytes(byte *b, int len)
 	}
 }
 
-int decode_integer(glong val, int size)
-{
-	int is_neg;
-	glong inv;
-	glong result;
-
-	/* save any work if it's zero */
-	if(val == 0) {
-		return 0;
-	}
-
-	is_neg = 0;
-	inv = (~val) + 1;
-
-	switch(size) {
-		case sizeof(byte):
-			if(!BITS_7(val)) {
-				result = val;
-			} else {
-				result = -LONG_BYTE(inv);
-			}
-			break;
-		case sizeof(gword):
-			if(!BITS_15(val)) {
-				result = val;
-			} else {
-				result = -LONG_WORD(inv);
-			}
-			break;
-		case sizeof(glong):
-			if(!BITS_31(val)) {
-				result = val;
-			} else {
-				result = -inv;
-			}
-			break;
-		default:
-			dbg_e("Invalid size");
-			return 0;
-	}
-
-	return result;
-}
