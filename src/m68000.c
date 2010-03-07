@@ -371,7 +371,7 @@ int m68000_inst_get_operand_source_val(struct m68000 *m68k, struct memory *mem,
 			source_val = *(gword *) m68k->register_pointers[oi->reg];
 			break;
 		case OPERAND_TYPE_INDIRECT:
-			memory_request(mem, oi->address, size, &source_val, 1);
+			memory_request(mem, oi->address, &source_val, size, 1);
 			break;
 		case OPERAND_TYPE_IMMEDIATE:
 			source_val = oi->data_int;
@@ -395,7 +395,7 @@ int m68000_inst_set_operand_dest(struct m68000 *m68k, struct memory *mem,
 			m68000_register_set(m68k, oi->reg, val, size);
 			break;
 		case OPERAND_TYPE_INDIRECT:
-			dbg_e("memory_put... not implemented");
+			memory_write(mem, oi->address, &val, size, 1);
 			break;
 		case OPERAND_TYPE_IMMEDIATE:
 			dbg_e("Immediate data destination invaid");

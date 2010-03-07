@@ -35,15 +35,16 @@ sets the memory pointed to by 'n' to the data at the given memory address.
 'size' bytes will be written so 'n' must have enough bytes allocated.
 if 'convert' is non-zero, the value will be converted to host endinanness.
 */
-int memory_request(struct memory *mem, size_t address, int size, void *n, int convert);
+int memory_request(struct memory *mem, size_t address, void *n, int size, int convert);
 /* XXX: comment */
-int memory_request_multi(struct memory *mem, size_t address, int size,
-						int num, void *n, int convert);
+int memory_request_multi(struct memory *mem, size_t address, void *n, int size,
+						int num, int convert);
+int memory_write(struct memory *mem, size_t address, void *n, int size, int convert);
 /* returns (by pointer) the value at the requested address */
 #define memory_request_easy(addr, type, ret_ptr) \
-			memory_request(mem, (size_t) (addr), sizeof(type), ret_ptr, 1)
+			memory_request(mem, (size_t) (addr), ret_ptr, sizeof(type), 1)
 #define memory_request_multi_easy(addr, type, num, ret_ptr) \
-		memory_request_multi(mem, (size_t) (addr), sizeof(type), num, ret_ptr, 1)
+		memory_request_multi(mem, (size_t) (addr), ret_ptr, sizeof(type), num, 1)
 
 void swap_bytes(byte *b, int len);
 gint be_to_host_gint(gint n);

@@ -16,8 +16,7 @@ int memory_init(struct memory *mem)
 
 	return 0;
 }
-
-int memory_request(struct memory *mem, size_t address, int size, void *n, int convert)
+int memory_request(struct memory *mem, size_t address, void *n, int size, int convert)
 {
 	if((( address) + size) > mem->len) {
 		dbg_e("Memory request out of bounds (%ld + %d > %ld)",
@@ -34,19 +33,36 @@ int memory_request(struct memory *mem, size_t address, int size, void *n, int co
 	return 0;
 }
 
-int memory_request_multi(struct memory *mem, size_t address, int size,
-						int num, void *n, int convert)
+int memory_request_multi(struct memory *mem, size_t address, void *n, int size,
+						int num, int convert)
 {
 	int i, result;
 
 	result = 0;
 
 	for(i = 0; i < num; i++) {
-		result |= memory_request(mem, address, size,
-					((byte *) n) + (i * size), convert);
+		result |= memory_request(mem, address, ((byte *) n) + (i * size),
+						size, convert);
 	}
 
 	return result;
+}
+
+int memory_write(struct memory *mem, size_t address, void *n, int size, int convert)
+{
+	if((( address) + size) > mem->len) {
+		dbg_e("Memory request out of bounds (%ld + %d > %ld)",
+				address, size, mem->len);
+		return -EFAULT;
+	}
+
+	if(convert) {
+		swap_bytes(n, size);
+	}
+	
+	memcpy(PMEMORY_DATA(mem) + address, n, size);
+
+	return 0;
 }
 
 gint be_to_host_gint(gint n)
@@ -96,4 +112,3 @@ void swap_bytes(byte *b, int len)
 		b[len - 1 - i] = temp;
 	}
 }
-
