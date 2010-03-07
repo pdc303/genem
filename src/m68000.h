@@ -245,11 +245,11 @@ but will produce non-zero and as such are appropriate for testing
 #define CCR_N_SET(status) (status |= CCR_N_BITVAL)
 #define CCR_X_SET(status) (status |= CCR_X_BITVAL)
 
-#define CCR_C_UNSET(status) (status ^= CCR_C_BITVAL)
-#define CCR_V_UNSET(status) (status ^= CCR_V_BITVAL)
-#define CCR_Z_UNSET(status) (status ^= CCR_Z_BITVAL)
-#define CCR_N_UNSET(status) (status ^= CCR_N_BITVAL)
-#define CCR_X_UNSET(status) (status ^= CCR_X_BITVAL)
+#define CCR_C_UNSET(status) (status &= ~CCR_C_BITVAL)
+#define CCR_V_UNSET(status) (status &= ~CCR_V_BITVAL)
+#define CCR_Z_UNSET(status) (status &= ~CCR_Z_BITVAL)
+#define CCR_N_UNSET(status) (status &= ~CCR_N_BITVAL)
+#define CCR_X_UNSET(status) (status &= ~CCR_X_BITVAL)
 
 #define CCR_C_SETX(status, n) (n ? CCR_C_SET(status) : CCR_C_UNSET(status));
 #define CCR_V_SETX(status, n) (n ? CCR_V_SET(status) : CCR_V_UNSET(status));
