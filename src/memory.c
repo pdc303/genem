@@ -16,7 +16,8 @@ int memory_init(struct memory *mem)
 
 	return 0;
 }
-int memory_request(struct memory *mem, size_t address, void *n, int size, int convert)
+int memory_request(struct memory *mem, size_t address, void *n, int size,
+			int convert, gclock_t *cycles)
 {
 	if((( address) + size) > mem->len) {
 		dbg_e("Memory request out of bounds (%ld + %d > %ld)",
@@ -34,7 +35,7 @@ int memory_request(struct memory *mem, size_t address, void *n, int size, int co
 }
 
 int memory_request_multi(struct memory *mem, size_t address, void *n, int size,
-						int num, int convert)
+					int num, int convert, gclock_t *cycles)
 {
 	int i, result;
 
@@ -42,20 +43,21 @@ int memory_request_multi(struct memory *mem, size_t address, void *n, int size,
 
 	for(i = 0; i < num; i++) {
 		result |= memory_request(mem, address, ((byte *) n) + (i * size),
-						size, convert);
+						size, convert, cycles);
 	}
 
 	return result;
 }
 
-int memory_write(struct memory *mem, size_t address, void *n, int size, int convert)
+int memory_write(struct memory *mem, size_t address, void *n, int size,
+			int convert, gclock_t *cycles)
 {
 	if((( address) + size) > mem->len) {
 		dbg_e("Memory request out of bounds (%ld + %d > %ld)",
 				address, size, mem->len);
 		return -EFAULT;
 	}
-
+	
 	if(convert) {
 		swap_bytes(n, size);
 	}
