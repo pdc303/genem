@@ -33,6 +33,8 @@
 /* return non-zero if a number is negative */
 #define IS_NEG(n, size) (n >> ((size * 8) - 1) & 1)
 
+enum LR { LEFT, RIGHT };
+
 enum BITWISE_OPERATION {
 		BITWISE_OR,
 		BITWISE_AND
@@ -42,6 +44,10 @@ glong glong_crop(glong n, int size);
 glong encode_2c(glong n, int size);
 glong decode_2c(glong val, int size);
 /* get bit 'bitno' from 'src' */
-int get_bit(int src, int bitno);
+int get_bit(glong src, int bitno);
+int set_bit(glong x, int bitno);
+int unset_bit(glong x, int bitno);
+glong set_bit_to_val(glong x, int bitno, int val);
+glong rotate_bits(glong x, int high, int low, int count, enum LR lr);
 
 #endif

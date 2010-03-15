@@ -70,7 +70,58 @@ glong decode_2c(glong val, int size)
 	return result;
 }
 
-int get_bit(int src, int bitno)
+int get_bit(glong src, int bitno)
 {
 	return (src >> bitno) & 0x01;
+}
+
+glong set_bit(glong x, int bitno)
+{
+	return x | (1 << bitno);
+}
+
+glong unset_bit(glong x, int bitno)
+{
+	return x & (~(1 << bitno));
+}
+
+glong set_bit_to_val(glong x, int bitno, int val)
+{
+	return val ? set_bit(x, bitno) : unset_bit(x, bitno);
+}
+
+/* rotate bits high..low in x. ensure bit 'protect' is not changed */
+glong rotate_bits(glong x, int high, int low, int count, enum LR lr)
+{
+	int save;
+	int i;
+	int mask;
+	int orig;
+
+	orig = x;
+
+	/* create a 'mask' to represent the bits which are subject to change */
+	mask = 0;
+	for(i = low; i <= high; i++) {
+		mask = set_bit(mask, i);
+	}
+
+	while(count--) {
+		if(lr == LEFT) {
+			save = get_bit(x, high);
+			x <<= 1;
+			x = set_bit_to_val(x, low, save);
+		} else {
+			save = get_bit(x, low);
+			x >>= 1;
+			x = set_bit_to_val(x, high, save);
+		}
+	}
+	/* mask out any bits we altered but were not actually part of the rotation */
+	x &= mask;
+
+	/* apply the changes to the original value */
+	orig |= x;
+
+	return orig;
 }
