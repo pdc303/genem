@@ -2,6 +2,9 @@
 #include "types.h"
 #include "debug.h"
 
+#ifndef __SYSUTIL_H__
+#define __SYSUTIL_H__
+
 /*
 Sort which OS we have.
 These are #defines we may get from gcc.
@@ -13,7 +16,7 @@ These are #defines we may get from gcc.
 	#define OS_UNIX
 #elif defined(_WIN32) || defined(__WIN32__) || defined(WIN32)
 	#define OS_WIN
-#elif #defined(__APPLE__) || defined(_APPLE) || defined(APPLE)
+#elif defined(__APPLE__) || defined(_APPLE) || defined(APPLE)
 	#define OS_MAC
 #else
 	#define OS_LINUX
@@ -31,3 +34,5 @@ These are #defines we may get from gcc.
 
 size_t get_file_size(const char *filename);
 size_t read_file(const char *filename, byte *buf, size_t max_len);
+
+#endif
