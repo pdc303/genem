@@ -10,7 +10,8 @@
 #define BITS_0_7(w) (w & 0xFF)
 #define BITS_3(w) ((w >> 3) & 0x01)
 #define BITS_3_4(w) ((w >> 3) & 0x3)
-#define BITS_4_8(w) ((w >> 4) & 0xF)
+#define BITS_3_7(w) ((w >> 3) & 0x1F)
+#define BITS_4_8(w) ((w >> 4) & 0x1F)
 #define BITS_5(w) ((w >> 5) & 0x1)
 /* get bits 6 and 7 of a value */
 #define BITS_6_7(w) ((w & 0xC0) >> 6)
