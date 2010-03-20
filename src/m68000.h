@@ -129,7 +129,7 @@ representing the fake operand in particular
 		(((BITS_6_7(inst) != 0x3) && (BITS_3_4(inst) == 0x1)) || \
 		((BITS_6_7(inst) == 0x3) && (BITS_9_15(inst) == 0x71)))
 #define INST_SHIFTROTBIT_IS_ROD(inst) \
-		((BITS_6_7(inst) != 0x3) && (BITS_3_4(inst) == 0x2))
+		((BITS_6_7(inst) != 0x3) && (BITS_3_4(inst) == 0x3))
 
 /* ADDQSUBQ */
 

@@ -123,6 +123,9 @@ int m68000_exec(struct m68000 *m68k, struct memory *mem)
 		case OPCODE_LSD:
 			result = m68000_exec_lsd(m68k, mem, inst);
 			break;
+		case OPCODE_ROD:
+			result = m68000_exec_rod(m68k, mem, inst);
+			break;
 		case OPCODE_RTS:
 			result = m68000_exec_rts(m68k);
 			break;
@@ -192,7 +195,10 @@ int m68000_decode_opcode(gword inst)
 		case OPCODE_SHIFTROTBIT:
 			if(INST_SHIFTROTBIT_IS_LSD(inst)) {
 				return OPCODE_LSD;
+			} else if(INST_SHIFTROTBIT_IS_ROD(inst)) {
+				return OPCODE_ROD;
 			}
+			break;
 		case OPCODE_ADDQSUBQ:
 			if(INST_ADDQSUBQ_IS_DBCC(inst)) {
 				return OPCODE_DBCC;
@@ -245,7 +251,7 @@ int m68000_exec_move(struct m68000 *m68k, struct memory *mem, gword inst, int si
 
 	source_val = m68000_inst_get_operand_source_val(m68k, mem, &src);
 	m68000_inst_set_operand_dest(m68k, mem, &dest, source_val);
-		
+
 	/* set flags */
 	CCR_V_UNSET(m68k->status);
 	CCR_C_UNSET(m68k->status);
@@ -508,6 +514,7 @@ int m68000_inst_get_operand_size(struct m68000 *m68k, struct memory *mem, gword 
 		case OPCODE_ANDI:
 		case OPCODE_TST:
 		case OPCODE_LSD:
+		case OPCODE_ROD:
 		case OPCODE_CLR:
 				size_format = 2;
 				size = BITS_6_7(inst);
@@ -1164,17 +1171,16 @@ int m68000_exec_lsd(struct m68000 *m68k, struct memory *mem, gword inst)
 
 	CCR_N_SETX(m68k->status, (to_shift < 0));
 	CCR_Z_SETX(m68k->status, (to_shift == 0));
+	CCR_V_UNSET(m68k->status);
 
 	/* now to put the shifted value in the dest */
 
+	m68000_inst_set_operand_dest(m68k, mem, &ea, to_shift);
+	CC(BASE_TIME_LSD_MEM);
 	if(shift_type == LSD_REGISTER_SHIFT) {
-		m68000_register_set(m68k, reg, to_shift, ea.size);
 		CC(ea.size == sizeof(glong) ? 
 			BASE_TIME_LSD_REG_L : BASE_TIME_LSD_REG_BW);
 		CC(2 * shift_count);
-	} else {
-		m68000_inst_set_operand_dest(m68k, mem, &ea, to_shift);
-		CC(BASE_TIME_LSD_MEM);
 	}
 
 	return 0;
@@ -1182,15 +1188,19 @@ int m68000_exec_lsd(struct m68000 *m68k, struct memory *mem, gword inst)
 
 int m68000_exec_rod(struct m68000 *m68k, struct memory *mem, gword inst)
 {
-	int ir, dr, cr, reg, shift_count;
+	int ir, dr, cr, shift_count;
+	enum M68000_REGISTER reg;
 	int shift_type;
 	struct operand_info ea;
 	int result;
 	glong to_shift;
+	enum LR direction;
 
 	result = 0;
 	
 	dr = BITS_8(inst);
+
+	direction = dr ? LEFT : RIGHT;
 
 	if(BITS_6_7(inst) == 0x3) {
 		shift_type = LSD_MEMORY_SHIFT;
@@ -1235,42 +1245,27 @@ int m68000_exec_rod(struct m68000 *m68k, struct memory *mem, gword inst)
 
 	}
 
-	rotate_bits(to_shift, ea.size * 8, 0, shift_count, dr ? LEFT : RIGHT);
+	/* rotate bits (not rotating the MSB) */
+	to_shift = rotate_bits(to_shift, (ea.size * 8) - 2, 0, shift_count - 1, direction);
+	/* grab the last rotated-out bit */
+	CCR_C_SETX(m68k->status, direction == LEFT ?
+				get_bit(to_shift, (ea.size * 8) - 2) :
+				BITS_0(to_shift))
+	/* finish the rotate */
+	to_shift = rotate_bits(to_shift, (ea.size * 8) - 2, 0, 1, direction);
 
-	if(dr == 0) {
-		/* right shift */
-		if(shift_count > 0) {
-			CCR_X_SETX(m68k->status, get_bit(to_shift, shift_count - 1));
-			CCR_C_SETX(m68k->status, CCR_X(m68k->status));
-		} else {
-			CCR_C_UNSET(m68k->status);
-		}
-		to_shift >>= shift_count;
-	} else {
-		/* left shift */
-		if(shift_count > 0) {
-			CCR_X_SETX(m68k->status, 
-				get_bit(to_shift, ((ea.size * 8) - 1) - shift_count + 1));
-			CCR_C_SETX(m68k->status, CCR_X(m68k->status));
-		} else {
-			CCR_C_UNSET(m68k->status);
-		}
-		to_shift <<= shift_count;
-	}
-
-	CCR_N_SETX(m68k->status, (to_shift < 0));
+	CCR_N_SETX(m68k->status, IS_NEG(to_shift, ea.size));
 	CCR_Z_SETX(m68k->status, (to_shift == 0));
+	CCR_V_UNSET(m68k->status);
 
 	/* now to put the shifted value in the dest */
-
+	m68000_inst_set_operand_dest(m68k, mem, &ea, to_shift);
 	if(shift_type == LSD_REGISTER_SHIFT) {
-		m68000_register_set(m68k, reg, to_shift, ea.size);
 		CC(ea.size == sizeof(glong) ? 
-			BASE_TIME_LSD_REG_L : BASE_TIME_LSD_REG_BW);
+			BASE_TIME_ROD_REG_L : BASE_TIME_ROD_REG_BW);
 		CC(2 * shift_count);
 	} else {
-		m68000_inst_set_operand_dest(m68k, mem, &ea, to_shift);
-		CC(BASE_TIME_LSD_MEM);
+		CC(BASE_TIME_ROD_MEM);
 	}
 
 	return 0;
