@@ -7,6 +7,7 @@
 /* get Byte from a Word */
 #define WORD_BYTE(w) BITS_0_7(w)
 /* get bits 0 to 7 of a value */
+#define BITS_0(w) (w & 0x01)
 #define BITS_0_7(w) (w & 0xFF)
 #define BITS_3(w) ((w >> 3) & 0x01)
 #define BITS_3_4(w) ((w >> 3) & 0x3)
