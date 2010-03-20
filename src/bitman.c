@@ -96,7 +96,7 @@ glong rotate_bits(glong x, int high, int low, int count, enum LR lr)
 	int save;
 	int i;
 	int mask;
-	int orig;
+	int orig, integrater;
 
 	orig = x;
 
@@ -104,6 +104,12 @@ glong rotate_bits(glong x, int high, int low, int count, enum LR lr)
 	mask = 0;
 	for(i = low; i <= high; i++) {
 		mask = set_bit(mask, i);
+	}
+	
+	/* create a 'mask' which is the original value but with the bits subject to change 0 */
+	integrater = orig;
+	for(i = low; i <= high; i++) {
+		integrater = unset_bit(integrater, i);
 	}
 
 	while(count--) {
@@ -121,7 +127,7 @@ glong rotate_bits(glong x, int high, int low, int count, enum LR lr)
 	x &= mask;
 
 	/* apply the changes to the original value */
-	orig |= x;
+	integrater |= x;
 
-	return orig;
+	return integrater;
 }
