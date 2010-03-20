@@ -68,6 +68,8 @@ representing the fake operand in particular
 
 /* LSd (LSL, LSR) */
 #define OPCODE_LSD GENERATE_FAKE_OPCODE(OPCODE_SHIFTROTBIT, 0)
+/* ROd (ROL, ROR) */
+#define OPCODE_ROD GENERATE_FAKE_OPCODE(OPCODE_SHIFTROTBIT, 1)
 
 #define OPCODE_DBCC GENERATE_FAKE_OPCODE(OPCODE_ADDQSUBQ, 0)
 
@@ -126,6 +128,8 @@ representing the fake operand in particular
 #define INST_SHIFTROTBIT_IS_LSD(inst) \
 		(((BITS_6_7(inst) != 0x3) && (BITS_3_4(inst) == 0x1)) || \
 		((BITS_6_7(inst) == 0x3) && (BITS_9_15(inst) == 0x71)))
+#define INST_SHIFTROTBIT_IS_ROD(inst) \
+		((BITS_6_7(inst) != 0x3) && (BITS_3_4(inst) == 0x2))
 
 /* ADDQSUBQ */
 
@@ -452,6 +456,7 @@ int m68000_exec_and_or(struct m68000 *m68k, struct memory *mem, gword inst,
 void m68000_register_set(struct m68000 *m68k, enum M68000_REGISTER reg, glong val, int size);
 glong m68000_register_get(struct m68000 *m68k, enum M68000_REGISTER reg, int size, int decode);
 int m68000_exec_lsd(struct m68000 *m68k, struct memory *mem, gword inst);
+int m68000_exec_rod(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_rts(struct m68000 *m68k);
 int m68000_exec_dbcc(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_clr(struct m68000 *m68k, struct memory *mem, gword inst);

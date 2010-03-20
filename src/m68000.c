@@ -28,6 +28,7 @@ const char* opcode_names[256] =
 	[OPCODE_AND] = "AND",
 	[OPCODE_OR] = "OR",
 	[OPCODE_LSD] = "LSL/LSR",
+	[OPCODE_ROD] = "ROL/ROR",
 	[OPCODE_RTS] = "RTS",
 	[OPCODE_CLR] = "CLR",
 };
@@ -1132,6 +1133,109 @@ int m68000_exec_lsd(struct m68000 *m68k, struct memory *mem, gword inst)
 		to_shift = m68000_inst_get_operand_source_val(m68k, mem, &ea);
 
 	}
+
+	if(dr == 0) {
+		/* right shift */
+		if(shift_count > 0) {
+			/* shift all but one */
+			to_shift >>= shift_count - 1;
+			/* if shift_count>0, set to the last bit shifted out. otherwise unaffected */
+			CCR_X_SETX(m68k->status, get_bit(to_shift, 0));
+			/* if shift_count>0, set to the last bit shifted out. otherwise cleared */
+			CCR_C_SETX(m68k->status, CCR_X(m68k->status));
+			/* shift out the last bit */
+			to_shift >>= 1;
+		} else {
+			CCR_C_UNSET(m68k->status);
+		}
+	} else {
+		/* left shift */
+		if(shift_count > 0) {
+			/* shift all but one */
+			to_shift <<= shift_count - 1;
+			/* if shift_count>0, set to the last bit shifted out. otherwise unaffected */
+			CCR_X_SETX(m68k->status, get_bit(to_shift, 0));
+			/* if shift_count>0, set to the last bit shifted out. otherwise cleared */
+			CCR_C_SETX(m68k->status, CCR_X(m68k->status));
+			/* shift out the last bit */
+			to_shift <<= 1;
+		}
+	}
+
+	CCR_N_SETX(m68k->status, (to_shift < 0));
+	CCR_Z_SETX(m68k->status, (to_shift == 0));
+
+	/* now to put the shifted value in the dest */
+
+	if(shift_type == LSD_REGISTER_SHIFT) {
+		m68000_register_set(m68k, reg, to_shift, ea.size);
+		CC(ea.size == sizeof(glong) ? 
+			BASE_TIME_LSD_REG_L : BASE_TIME_LSD_REG_BW);
+		CC(2 * shift_count);
+	} else {
+		m68000_inst_set_operand_dest(m68k, mem, &ea, to_shift);
+		CC(BASE_TIME_LSD_MEM);
+	}
+
+	return 0;
+}
+
+int m68000_exec_rod(struct m68000 *m68k, struct memory *mem, gword inst)
+{
+	int ir, dr, cr, reg, shift_count;
+	int shift_type;
+	struct operand_info ea;
+	int result;
+	glong to_shift;
+
+	result = 0;
+	
+	dr = BITS_8(inst);
+
+	if(BITS_6_7(inst) == 0x3) {
+		shift_type = LSD_MEMORY_SHIFT;
+	} else {
+		shift_type = LSD_REGISTER_SHIFT;
+	}
+
+	if(shift_type == LSD_REGISTER_SHIFT) {
+
+		ir = BITS_5(inst);
+		ea.size = m68000_inst_get_operand_size(m68k, mem, inst);
+		reg = M68000_REGISTER_D0 + INST_SOURCE_EA_REGISTER(inst);
+
+		to_shift = m68000_register_get(m68k, reg, ea.size, 0);
+
+		/*
+		shift count: immediate or register?
+		ir = 0: this field contains the shift count.
+		ir = 1: shift count = register contents % 64.
+		*/
+		cr = BITS_9_11(inst);
+
+		if(ir == 0) {
+			shift_count = cr;
+			if(cr == 0) {
+				shift_count = 8;
+			}
+		} else {
+			/*
+			presuming the register value does not need 2c decoding as a negative
+			value would not make sense.
+			PRM says this is limited to 64 so modulo the value 64.
+			*/
+			shift_count = m68000_register_get(m68k, reg, ea.size, 0) % 64;
+		}
+	} else {
+		shift_count = 1;
+		ea.size = sizeof(gword);
+		result = m68000_inst_get_operand_info(m68k, mem, inst,
+						OPERAND_ONE, &ea);
+		to_shift = m68000_inst_get_operand_source_val(m68k, mem, &ea);
+
+	}
+
+	rotate_bits(to_shift, ea.size * 8, 0, shift_count, dr ? LEFT : RIGHT);
 
 	if(dr == 0) {
 		/* right shift */
