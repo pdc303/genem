@@ -96,9 +96,13 @@ enum BASE_TIME {
 	BASE_TIME_AND_REG_TO_EA_BW = 8,
 	BASE_TIME_AND_REG_TO_EA_L = 12,
 
-	BASE_TIME_LSD_REG_BW = 6, /* LSR/LSL Register shift. Byte/Word */
-	BASE_TIME_LSD_REG_L = 8, /* LSR/LSL Register shift. Long */
-	BASE_TIME_LSD_MEM = 8, /* LSR/LSL Register shift */
+	BASE_TIME_LSD_REG_BW = 6, /* LSL/LSR Register shift. Byte/Word */
+	BASE_TIME_LSD_REG_L = 8, /* LSL/LSR Register shift. Long */
+	BASE_TIME_LSD_MEM = 8, /* LSL/LSR Register shift */
+	
+	BASE_TIME_ROD_REG_BW = 6, /* ROL/ROR Register shift. Byte/Word */
+	BASE_TIME_ROD_REG_L = 8, /* ROL/ROR Register shift. Long */
+	BASE_TIME_ROD_MEM = 8, /* ROL/ROR Register shift */
 
 	BASE_TIME_RTS = 32,
 	BASE_TIME_MOVEQ = 4,
