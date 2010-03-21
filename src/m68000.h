@@ -57,6 +57,7 @@ representing the fake operand in particular
 #define OPCODE_CLR GENERATE_FAKE_OPCODE(OPCODE_MISC, 3)
 
 #define OPCODE_ANDI GENERATE_FAKE_OPCODE(OPCODE_BITMANIP, 0)
+#define OPCODE_CMPI GENERATE_FAKE_OPCODE(OPCODE_BITMANIP, 1)
 
 #define OPCODE_MULU GENERATE_FAKE_OPCODE(OPCODE_ANDMUL, 0)
 #define OPCODE_ABCD GENERATE_FAKE_OPCODE(OPCODE_ANDMUL, 1)
@@ -83,7 +84,6 @@ representing the fake operand in particular
 /* MISC */
 
 /* is this MISC instruction a TST ? */
-//#define INST_MISC_IS_TST(inst) (BITS_6_7(inst) != 3)
 #define INST_MISC_IS_TST(inst) ((BITS_6_7(inst) != 0x3) && (BITS_8_15(inst) == 0x4A))
 #define INST_MISC_IS_LEA(inst) ((BITS_12_15(inst) == 0x4) && (BITS_6_8(inst) == 0x7))
 #define INST_MISC_IS_RTS(inst) (inst == 0x4E75)
@@ -110,6 +110,7 @@ representing the fake operand in particular
 #define CONDITION_LE 0xF
 
 #define INST_BITMANIP_IS_ANDI(inst) (BITS_8_15(inst) == 0x2)
+#define INST_BITMANIP_IS_CMPI(inst) (BITS_8_15(inst) == 0xC)
 
 /* ANDMUL */
 
@@ -447,6 +448,7 @@ int m68000_exec_tst(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_branch(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_test_condition(struct m68000 *m68k, int condition);
 int m68000_exec_bitmanip(struct m68000 *m68k, struct memory *mem, gword inst);
+glong m68000_get_immediate_value(struct m68000 *m68k, struct memory *mem, int size);
 int m68000_exec_andi(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_lea(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_and(struct m68000 *m68k, struct memory *mem, gword inst);
@@ -460,5 +462,7 @@ int m68000_exec_rod(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_rts(struct m68000 *m68k);
 int m68000_exec_dbcc(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_clr(struct m68000 *m68k, struct memory *mem, gword inst);
+int m68000_exec_cmpi(struct m68000 *m68k, struct memory *mem, gword inst);
+int m68000_cmp_generalised(struct m68000 *m68k, glong src, glong dest);
 
 #endif /* __M68000_H__ */

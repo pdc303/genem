@@ -24,7 +24,8 @@ const char* opcode_names[256] =
 	[OPCODE_DBCC] = "DBcc",
 	[OPCODE_TST] = "TST",
 	[OPCODE_LEA] = "LEA",
-	[OPCODE_ANDI] = "AND.I",
+	[OPCODE_ANDI] = "ANDI",
+	[OPCODE_CMPI] = "CMPI",
 	[OPCODE_AND] = "AND",
 	[OPCODE_OR] = "OR",
 	[OPCODE_LSD] = "LSL/LSR",
@@ -89,6 +90,9 @@ int m68000_exec(struct m68000 *m68k, struct memory *mem)
 	switch(opcode) {
 		case OPCODE_ANDI:
 			result = m68000_exec_andi(m68k, mem,  inst);
+			break;
+		case OPCODE_CMPI:
+			result = m68000_exec_cmpi(m68k, mem,  inst);
 			break;
 		case OPCODE_MOVEB:
 			result = m68000_exec_move(m68k, mem,  inst, sizeof(byte));
@@ -172,6 +176,8 @@ int m68000_decode_opcode(gword inst)
 		case OPCODE_BITMANIP:
 			if(INST_BITMANIP_IS_ANDI(inst)) {
 				return OPCODE_ANDI;
+			} else if(INST_BITMANIP_IS_CMPI(inst)) {
+				return OPCODE_CMPI;
 			}
 			break;
 		case OPCODE_ANDMUL:
@@ -512,6 +518,7 @@ int m68000_inst_get_operand_size(struct m68000 *m68k, struct memory *mem, gword 
 			size = BITS_12_13(inst);
 			break;
 		case OPCODE_ANDI:
+		case OPCODE_CMPI:
 		case OPCODE_TST:
 		case OPCODE_LSD:
 		case OPCODE_ROD:
@@ -823,6 +830,30 @@ int m68000_test_condition(struct m68000 *m68k, int condition)
 	return result;
 }
 
+/* get an immediate value which follows an instruction */
+glong m68000_get_immediate_value(struct m68000 *m68k, struct memory *mem, int size)
+{
+	gword instx[2];
+	glong val;
+
+	PM68000_GET_NEXT_INSTRUCTION(m68k, &(instx[0]));
+
+	switch(size) {
+		case sizeof(byte):
+			val = WORD_BYTE(instx[0]);
+			break;
+		case sizeof(gword):
+			val = instx[0];
+			break;
+		case sizeof(glong):
+			PM68000_GET_NEXT_INSTRUCTION(m68k, &(instx[1]));
+			val = (instx[0] << (sizeof(gword) * 8)) | (instx[1]);
+			break;
+	}
+
+	return val;
+}
+
 int m68000_exec_andi(struct m68000 *m68k, struct memory *mem, gword inst)
 {
 	int result;
@@ -837,21 +868,7 @@ int m68000_exec_andi(struct m68000 *m68k, struct memory *mem, gword inst)
 
 	dest_val = m68000_inst_get_operand_source_val(m68k, mem, &dest);
 	
-	PM68000_GET_NEXT_INSTRUCTION(m68k, &(instx[0]));
-
-	switch(dest.size) {
-		case sizeof(byte):
-			source_val = WORD_BYTE(instx[0]);
-			break;
-		case sizeof(gword):
-			source_val = instx[0];
-			break;
-		case sizeof(glong):
-			PM68000_GET_NEXT_INSTRUCTION(m68k, &(instx[1]));
-			source_val = (instx[0] << (sizeof(gword) * 8)) | (instx[1]);
-			break;
-	}
-
+	source_val = m68000_get_immediate_value(m68k, mem, dest.size);
 
 	dest_val &= source_val;
 
@@ -1304,4 +1321,39 @@ int m68000_exec_clr(struct m68000 *m68k, struct memory *mem, gword inst)
 	} else {
 		CC(ea.size == sizeof(glong) ? BASE_TIME_CLR_MEM_L : BASE_TIME_CLR_MEM_BW);
 	}
+}
+
+int m68000_exec_cmpi(struct m68000 *m68k, struct memory *mem, gword inst)
+{
+	struct operand_info ea;
+	int result;
+	glong dest_val, source_val;
+
+	ea.size = 0;
+	result = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &ea);
+	assert(result == 0);
+	dest_val = m68000_inst_get_operand_source_val(m68k, mem, &ea);
+	source_val = m68000_get_immediate_value(m68k, mem, ea.size);
+
+	m68000_cmp_generalised(m68k, source_val, dest_val);
+}
+
+/* generalised CMP function. expected sign extended values */
+int m68000_cmp_generalised(struct m68000 *m68k, glong src, glong dest)
+{
+	glong subval;
+
+	subval = dest - src;
+
+	CCR_N_SETX(m68k->status, subval < 0);
+	CCR_Z_SETX(m68k->status, subval == 0);
+	/* do we have overflow? */
+	CCR_V_SETX(m68k->status, (subval > dest) != (src > 0));
+	/*
+	Was there borrow by the MSB?
+	Note this test is probably wrong or naive.
+	*/
+	CCR_C_SETX(m68k->status, src > dest);
+
+	return 0;
 }
