@@ -1,61 +1,59 @@
 #include "stack.h"
 
 #include "types.h"
+#include "memory.h"
 #include "sysmem.h"
 #include "debug.h"
 
-void stack_init(struct stack *st, size_t stack_size, size_t member_size)
+/* vaddr shall me the location in virtual memory where the stack structure begins. */
+void stack_init(struct stack *st, size_t stack_size, glong vaddr)
 {
+	int i;
+
 	st->stack_size = stack_size;
-	st->member_size = member_size;
+	st->stack_virtual_address = vaddr + (sizeof(struct stack));
+	/* ptr to the next available slot */
+	st->stack_pointer = st->stack_virtual_address + (sizeof(glong) * (stack_size - 1));
 
-	st->data = genem_malloc(stack_size);
-	st->stack_ptr = ((byte *) st->data) + stack_size;
+	st->num_items = 0;
 
-	st->nmemb = 0;
-	st->nmax = stack_size / member_size;
+	for(i = 0; i < stack_size; i++) {
+		st->data[i] = 0;
+	}
 }
+
 void stack_finish(struct stack *st)
 {
-	genem_free(st->data);
-	st->data = NULL;
+	st->num_items = 0;
 }
 
-void stack_push(struct stack *st, void *d)
+void stack_push(struct stack *st, glong val)
 {
-	if(st->nmemb == st->nmax) {
-		dbg_f("Stack full");
+	if(st->num_items == st->stack_size) {
+		dbg_f("Stack overflow");
 	}
 
-	st->stack_ptr = ((byte *) st->stack_ptr) - st->member_size;
+	val = host_to_be_glong(val);
 
-	switch(st->member_size) {
-		case sizeof(byte):
-			*((byte *) st->stack_ptr) = *((byte *) d);
-			break;
-		case sizeof(gword):
-			*((gword *) st->stack_ptr) = *((gword *) d);
-			break;
-		case sizeof(glong):
-			*((glong *) st->stack_ptr) = *((glong *) d);
-			break;
-	}
-
-	st->nmemb++;
+	st->data[st->stack_size - st->num_items - 1] = val;
+	st->num_items++;
+	st->stack_pointer -= sizeof(glong);
 }
 
-void *stack_pop(struct stack *st)
+glong stack_pop(struct stack *st)
 {
-	void *result;
+	glong val;
 
-	if(st->nmemb == 0) {
-		return NULL;
+	if(st->num_items == 0) {
+		dbg_f("Stack underflow");
+		return 0;
 	}
 
-	result = st->stack_ptr;
+	st->num_items--;
+	st->stack_pointer += sizeof(glong);
+	val = st->data[st->stack_size - st->num_items - 1];
+	
+	val = be_to_host_glong(val);
 
-	st->stack_ptr = ((byte *) st->stack_ptr) + st->member_size;
-	st->nmemb--;
-
-	return result;
+	return val;
 }
