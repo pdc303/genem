@@ -103,6 +103,19 @@ gword be_to_host_gword(gword n)
 #endif
 }
 
+glong host_to_be_glong(glong n)
+{
+#ifdef HOST_LE
+	glong result;
+	result = n;
+	swap_bytes((byte *) &result, sizeof(result));
+	return result;
+#else 
+	return n;
+#endif
+}
+
+
 void swap_bytes(byte *b, int len)
 {
 	byte temp;

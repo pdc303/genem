@@ -52,4 +52,5 @@ void swap_bytes(byte *b, int len);
 gint be_to_host_gint(gint n);
 glong be_to_host_glong(glong n);
 gword be_to_host_gword(gword n);
+glong host_to_be_glong(glong n);
 #endif /* __MEMORY_H__ */
