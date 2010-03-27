@@ -39,6 +39,7 @@ int main(int argc, char **argv)
 	ta = time(NULL);
 	while(i--) {
 		gclock_t cycles = WORLD_M68K(w).cycles;
+		dbg_i("PC: 0x%X", (int) WORLD_M68K(w).pc);
 		m68000_exec(WORLD_PM68K(w), WORLD_PMEM(w));
 		cycles = WORLD_M68K(w).cycles - cycles;
 		if(cycles == 0) {
