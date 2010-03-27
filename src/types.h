@@ -12,7 +12,7 @@ typedef uint16_t guword;
 typedef int8_t gint;
 typedef uint8_t guint;
 
-typedef unsigned char byte;
+typedef uint8_t byte;
 
 typedef uint64_t gclock_t;
 
