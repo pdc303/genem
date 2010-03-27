@@ -6,7 +6,8 @@
 #include "stack.h"
 #include "bitman.h"
 
-#define SYSTEM_STACK_SIZE 65536 // 64k
+//#define SYSTEM_STACK_SIZE 65536 // 64k
+#define SYSTEM_STACK_SIZE 32
 
 #define OPERAND_SOURCE 0
 #define OPERAND_DEST 1
@@ -34,8 +35,11 @@
 #define OPCODE_ADDQSUBQ	0x05
 #define OPCODE_BRANCH 0x06
 #define OPCODE_MOVEQ 0x07
-#define OPCODE_ANDMUL 0x0C
 #define OPCODE_ORDIVSBCD 0x08
+#define OPCODE_SUBSUBX 0x09
+#define OPCODE_CMPEOR 0x0B
+#define OPCODE_ANDMUL 0x0C
+#define OPCODE_ADDADDX 0xD
 #define OPCODE_SHIFTROTBIT 0xE
 
 /* fake opcodes */
@@ -58,6 +62,9 @@ representing the fake operand in particular
 
 #define OPCODE_ANDI GENERATE_FAKE_OPCODE(OPCODE_BITMANIP, 0)
 #define OPCODE_CMPI GENERATE_FAKE_OPCODE(OPCODE_BITMANIP, 1)
+#define OPCODE_EORI GENERATE_FAKE_OPCODE(OPCODE_BITMANIP, 2)
+#define OPCODE_BTST GENERATE_FAKE_OPCODE(OPCODE_BITMANIP, 3)
+#define OPCODE_ORI GENERATE_FAKE_OPCODE(OPCODE_BITMANIP, 4)
 
 #define OPCODE_MULU GENERATE_FAKE_OPCODE(OPCODE_ANDMUL, 0)
 #define OPCODE_ABCD GENERATE_FAKE_OPCODE(OPCODE_ANDMUL, 1)
@@ -73,6 +80,17 @@ representing the fake operand in particular
 #define OPCODE_ROD GENERATE_FAKE_OPCODE(OPCODE_SHIFTROTBIT, 1)
 
 #define OPCODE_DBCC GENERATE_FAKE_OPCODE(OPCODE_ADDQSUBQ, 0)
+#define OPCODE_ADDQ GENERATE_FAKE_OPCODE(OPCODE_ADDQSUBQ, 1)
+#define OPCODE_SUBQ GENERATE_FAKE_OPCODE(OPCODE_ADDQSUBQ, 2)
+
+#define OPCODE_CMP GENERATE_FAKE_OPCODE(OPCODE_CMPEOR, 0)
+#define OPCODE_CMPA GENERATE_FAKE_OPCODE(OPCODE_CMPEOR, 1)
+
+#define OPCODE_ADD GENERATE_FAKE_OPCODE(OPCODE_ADDADDX, 0)
+#define OPCODE_ADDA GENERATE_FAKE_OPCODE(OPCODE_ADDADDX, 1)
+
+#define OPCODE_SUB GENERATE_FAKE_OPCODE(OPCODE_SUBSUBX, 0)
+#define OPCODE_SUBA GENERATE_FAKE_OPCODE(OPCODE_SUBSUBX, 1)
 
 /* SIZE field values */
 
@@ -110,7 +128,11 @@ representing the fake operand in particular
 #define CONDITION_LE 0xF
 
 #define INST_BITMANIP_IS_ANDI(inst) (BITS_8_15(inst) == 0x2)
+#define INST_BITMANIP_IS_ORI(inst) (BITS_8_15(inst) == 0x0)
 #define INST_BITMANIP_IS_CMPI(inst) (BITS_8_15(inst) == 0xC)
+#define INST_BITMANIP_IS_EORI(inst) (BITS_8_15(inst) == 0xA)
+#define INST_BITMANIP_IS_BTST(inst) ((BITS_6_8(inst) == 0x4) ||\
+					(BITS_6_15(inst) == 0x20))
 
 /* ANDMUL */
 
@@ -135,6 +157,21 @@ representing the fake operand in particular
 /* ADDQSUBQ */
 
 #define INST_ADDQSUBQ_IS_DBCC(inst) (BITS_3_7(inst) == 0x19)
+#define INST_ADDQSUBQ_IS_ADDQ(inst) (!BITS_8(inst))
+#define INST_ADDQSUBQ_IS_SUBQ(inst) (BITS_8(inst))
+
+/* CMPEOR */
+#define INST_CMPEOR_IS_CMP(inst) (BITS_8(inst) == 0)
+#define INST_CMPEOR_IS_CMPA(inst) (BITS_8(inst) == 1)
+
+/* ADDADDX */
+#define INST_ADDADDX_IS_ADDA(inst) (BITS_6_7(inst) == 0x3)
+#define INST_ADDADDX_IS_ADD(inst) (BITS_6_7(inst) != 0x3)
+#define INST_ADDADDX_IS_ADDX(inst) (0)
+
+#define INST_SUBSUBX_IS_SUBA(inst) (BITS_6_7(inst) == 0x3)
+#define INST_SUBSUBX_IS_SUB(inst) (BITS_6_7(inst) != 0x3)
+#define INST_SUBSUBX_IS_SUBX(inst) (0)
 
 /* affect the PC by one instruction */
 #define PM68000_PC_INC(m) ((m->pc) += sizeof(gword))
@@ -246,6 +283,17 @@ sign-extended 16-bit displacement integer in the extension word
 
 #define LOOP_SOURCE 0
 #define LOOP_DEST 1
+
+/* used when a function need to note the passage of data */
+
+#define EA_TO_REG 0
+#define REG_TO_EA 1
+
+#define TO_REG 0
+#define TO_MEM 1
+
+#define FROM_REG 0
+#define FROM_MEM 1
 
 /* get CCR bits */
 /*
@@ -436,7 +484,7 @@ int m68000_inst_get_operand_info(struct m68000 *m68k, struct memory *mem, gword 
 				int operand_type, struct operand_info *oi);
 int m68000_inst_get_operand_size(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_inst_get_operand_source_val(struct m68000 *m68k, struct memory *mem,
-					struct operand_info *o);
+					struct operand_info *oi);
 int m68000_inst_set_operand_dest(struct m68000 *m68k, struct memory *mem,
 					struct operand_info *oi, glong val);
 int m68000_exec(struct m68000 *m68k, struct memory *mem);
@@ -449,7 +497,7 @@ int m68000_exec_branch(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_test_condition(struct m68000 *m68k, int condition);
 int m68000_exec_bitmanip(struct m68000 *m68k, struct memory *mem, gword inst);
 glong m68000_get_immediate_value(struct m68000 *m68k, struct memory *mem, int size);
-int m68000_exec_andi(struct m68000 *m68k, struct memory *mem, gword inst);
+int m68000_exec_andi_ori_flexible(struct m68000 *m68k, struct memory *mem, gword inst, int opcode);
 int m68000_exec_lea(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_and(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_or(struct m68000 *m68k, struct memory *mem, gword inst);
@@ -464,5 +512,13 @@ int m68000_exec_dbcc(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_clr(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_cmpi(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_cmp_generalised(struct m68000 *m68k, glong src, glong dest);
-
+int m68000_exec_cmp_flexible(struct m68000 *m68k, struct memory *mem, gword inst, int opcode);
+glong m68000_eor_generalised(struct m68000 *m68k, glong src, glong dest, int size);
+int m68000_exec_eori(struct m68000 *m68k, struct memory *mem, gword inst);
+int m68000_exec_add_sub_flexible(struct m68000 *m68k, struct memory *mem,
+						gword inst, int opcode);
+glong m68000_add_sub_generalised(struct m68000 *m68k, glong source, glong dest,
+					int size, int opcode, int affect_ccr);
+int m68000_exec_addq_subq_flexible(struct m68000 *m68k, struct memory *mem, gword inst, int opcode);
+int m68000_exec_btst(struct m68000 *m68k, struct memory *mem, gword inst);
 #endif /* __M68000_H__ */

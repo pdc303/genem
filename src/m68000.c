@@ -25,20 +25,32 @@ const char* opcode_names[256] =
 	[OPCODE_TST] = "TST",
 	[OPCODE_LEA] = "LEA",
 	[OPCODE_ANDI] = "ANDI",
+	[OPCODE_ORI] = "ORI",
 	[OPCODE_CMPI] = "CMPI",
+	[OPCODE_EORI] = "EORI",
 	[OPCODE_AND] = "AND",
 	[OPCODE_OR] = "OR",
 	[OPCODE_LSD] = "LSL/LSR",
 	[OPCODE_ROD] = "ROL/ROR",
 	[OPCODE_RTS] = "RTS",
 	[OPCODE_CLR] = "CLR",
+	[OPCODE_CMP] = "CMP",
+	[OPCODE_CMPA] = "CMPA",
+	[OPCODE_ADD] = "ADD",
+	[OPCODE_ADDA] = "ADDA",
+	[OPCODE_ADDQ] = "ADDQ",
+	[OPCODE_SUBQ] = "SUBQ",
+	[OPCODE_SUB] = "SUB",
+	[OPCODE_SUBA] = "SUBA",
+	[OPCODE_BTST] = "BTST",
 };
 
 int m68000_init(struct m68000 *m68k)
 {
 	memset(m68k, 0, sizeof(*m68k));
 	m68000_init_register_pointers_array(m68k);
-	stack_init(&m68k->system_stack, SYSTEM_STACK_SIZE, sizeof(glong));
+	stack_init(&m68k->system_stack, SYSTEM_STACK_SIZE,
+			0xFFFFFF - sizeof(struct stack) - (sizeof(glong) * SYSTEM_STACK_SIZE));
 
 	return 0;
 }
@@ -89,10 +101,14 @@ int m68000_exec(struct m68000 *m68k, struct memory *mem)
 
 	switch(opcode) {
 		case OPCODE_ANDI:
-			result = m68000_exec_andi(m68k, mem,  inst);
+		case OPCODE_ORI:
+			result = m68000_exec_andi_ori_flexible(m68k, mem,  inst, opcode);
 			break;
 		case OPCODE_CMPI:
 			result = m68000_exec_cmpi(m68k, mem,  inst);
+			break;
+		case OPCODE_EORI:
+			result = m68000_exec_eori(m68k, mem,  inst);
 			break;
 		case OPCODE_MOVEB:
 			result = m68000_exec_move(m68k, mem,  inst, sizeof(byte));
@@ -136,12 +152,29 @@ int m68000_exec(struct m68000 *m68k, struct memory *mem)
 		case OPCODE_CLR:
 			result = m68000_exec_clr(m68k, mem, inst);
 			break;
+		case OPCODE_CMP:
+		case OPCODE_CMPA:
+			result = m68000_exec_cmp_flexible(m68k, mem,  inst, opcode);
+			break;
+		case OPCODE_ADD:
+		case OPCODE_ADDA:
+		case OPCODE_SUB:
+		case OPCODE_SUBA:
+			result = m68000_exec_add_sub_flexible(m68k, mem,  inst, opcode);
+			break;
+		case OPCODE_ADDQ:
+		case OPCODE_SUBQ:
+			result = m68000_exec_addq_subq_flexible(m68k, mem,  inst, opcode);
+			break;
+		case OPCODE_BTST:
+			result = m68000_exec_btst(m68k, mem,  inst);
+			break;
 		case OPCODE_MULU:
 		case OPCODE_ABCD:
 		case OPCODE_MULS:
 		case OPCODE_EXG:
 		default:
-			dbg_e("Unhandled opcode: %d", opcode);
+			dbg_f("Unhandled opcode");
 			result = -1;
 			break;
 	}
@@ -178,6 +211,12 @@ int m68000_decode_opcode(gword inst)
 				return OPCODE_ANDI;
 			} else if(INST_BITMANIP_IS_CMPI(inst)) {
 				return OPCODE_CMPI;
+			} else if(INST_BITMANIP_IS_EORI(inst)) {
+				return OPCODE_EORI;
+			} else if(INST_BITMANIP_IS_BTST(inst)) {
+				return OPCODE_BTST;
+			} else if(INST_BITMANIP_IS_ORI(inst)) {
+				return OPCODE_ORI;
 			}
 			break;
 		case OPCODE_ANDMUL:
@@ -209,6 +248,39 @@ int m68000_decode_opcode(gword inst)
 			if(INST_ADDQSUBQ_IS_DBCC(inst)) {
 				return OPCODE_DBCC;
 			}
+			if(INST_ADDQSUBQ_IS_ADDQ(inst)) {
+				return OPCODE_ADDQ;
+			}
+			if(INST_ADDQSUBQ_IS_SUBQ(inst)) {
+				return OPCODE_SUBQ;
+			}
+			break;
+		case OPCODE_CMPEOR:
+			if(INST_CMPEOR_IS_CMP(inst)) {
+				return OPCODE_CMP;
+			}
+			if(INST_CMPEOR_IS_CMPA(inst)) {
+				return OPCODE_CMPA;
+			}
+			break;
+		case OPCODE_ADDADDX:
+			if(INST_ADDADDX_IS_ADDX(inst)) {
+				dbg_f("");
+			} else if(INST_ADDADDX_IS_ADD(inst)) {
+				return OPCODE_ADD;
+			} else if(INST_ADDADDX_IS_ADDA(inst)) {
+				return OPCODE_ADDA;
+			}
+			break;
+		case OPCODE_SUBSUBX:
+			if(INST_SUBSUBX_IS_SUBX(inst)) {
+				dbg_f("");
+			} else if(INST_SUBSUBX_IS_SUB(inst)) {
+				return OPCODE_SUB;
+			} else if(INST_SUBSUBX_IS_SUBA(inst)) {
+				return OPCODE_SUBA;
+			}
+			break;
 	}
 	
 	dbg_f("Unrecognised opcode: %d", opcode);
@@ -245,18 +317,15 @@ int m68000_exec_move(struct m68000 *m68k, struct memory *mem, gword inst, int si
 	src.size = dest.size = size;
 
 	result = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_SOURCE, &src);
-	assert(result == 0);
+	source_val = m68000_inst_get_operand_source_val(m68k, mem, &src);
 	result = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_DEST, &dest);
-	assert(result == 0);
+	m68000_inst_set_operand_dest(m68k, mem, &dest, source_val);
 	
 	switch(dest.type) {
 		case OPERAND_TYPE_IMMEDIATE:
 			dbg_f("Immediate data destination invaid for MOVE");
 			break;
 	}
-
-	source_val = m68000_inst_get_operand_source_val(m68k, mem, &src);
-	m68000_inst_set_operand_dest(m68k, mem, &dest, source_val);
 
 	/* set flags */
 	CCR_V_UNSET(m68k->status);
@@ -401,30 +470,9 @@ int m68000_inst_get_operand_info(struct m68000 *m68k, struct memory *mem, gword 
 				}
 				case EA_REGISTER_IMMEDIATE_DATA:
 				{
-					/* there will be a max of 6 extension words */
-					gword ext[6];
-
-					PM68000_GET_NEXT_INSTRUCTION(m68k, &(ext[0]));
-
 					oi->type = OPERAND_TYPE_IMMEDIATE;
 					oi->mode = ADDRESSING_MODE_IMMEDIATE;
-					switch(oi->size) {
-						case sizeof(byte):
-							oi->data_int = WORD_BYTE(ext[0]);
-							goto m68000_inst_get_source_info_out;
-						case sizeof(gword):
-							oi->data_int = ext[0];
-							goto m68000_inst_get_source_info_out;
-						case sizeof(glong):
-							PM68000_GET_NEXT_INSTRUCTION(m68k, &(ext[1]));
-							oi->data_int = (ext[0] << (sizeof(gword) * 8))
-									| ext[1];
-							goto m68000_inst_get_source_info_out;
-						default:
-							dbg_e("Unsupported size for Source Immediate data");
-							goto m68000_inst_get_source_info_error;
-					}
-					break;
+					goto m68000_inst_get_source_info_out;
 				}
 			}
 		default:
@@ -453,7 +501,7 @@ int m68000_inst_get_operand_source_val(struct m68000 *m68k, struct memory *mem,
 			memory_request(mem, oi->address, &source_val, oi->size, 1, &m68k->cycles);
 			break;
 		case OPERAND_TYPE_IMMEDIATE:
-			source_val = oi->data_int;
+			source_val = m68000_get_immediate_value(m68k, mem, oi->size);
 			break;
 		default:
 			dbg_e("Unknown source operand type");
@@ -518,13 +566,25 @@ int m68000_inst_get_operand_size(struct m68000 *m68k, struct memory *mem, gword 
 			size = BITS_12_13(inst);
 			break;
 		case OPCODE_ANDI:
+		case OPCODE_ORI:
 		case OPCODE_CMPI:
+		case OPCODE_CMP:
+		case OPCODE_EORI:
 		case OPCODE_TST:
 		case OPCODE_LSD:
 		case OPCODE_ROD:
 		case OPCODE_CLR:
+		case OPCODE_ADD:
+		case OPCODE_SUB:
+		case OPCODE_ADDQ:
+		case OPCODE_SUBQ:
 				size_format = 2;
 				size = BITS_6_7(inst);
+			break;
+		case OPCODE_ADDA:
+		case OPCODE_SUBA:
+				size_format = 3;
+				size = BITS_6_8(inst);
 			break;
 	}
 
@@ -557,7 +617,17 @@ int m68000_inst_get_operand_size(struct m68000 *m68k, struct memory *mem, gword 
 				default:
 					dbg_f("Bad size field value");
 			}
-
+		} else if(size_format == 3) {
+			switch(size) {
+				case 3:
+					bytes = sizeof(gword);
+					break;
+				case 7:
+					bytes = sizeof(glong);
+					break;
+				default:
+					dbg_f("Bad size field value");
+			}
 		}
 	} else {
 		dbg_f("No size bits set");
@@ -661,10 +731,10 @@ int m68000_exec_branch(struct m68000 *m68k, struct memory *mem, gword inst)
 			After a subroutine, execution should continue
 			at the next instruction. Our pc will be at that location
 			*/
-			stack_push(&m68k->system_stack, &future_pc);
+			stack_push(&m68k->system_stack, future_pc);
 			m68000_register_set(m68k, M68000_REGISTER_A7,
-					(glong) m68k->system_stack.stack_ptr,
-					sizeof(glong));
+						m68k->system_stack.stack_pointer,
+						sizeof(glong));
 			/* fall through */
 			}
 		case CONDITION_BRA:
@@ -854,7 +924,7 @@ glong m68000_get_immediate_value(struct m68000 *m68k, struct memory *mem, int si
 	return val;
 }
 
-int m68000_exec_andi(struct m68000 *m68k, struct memory *mem, gword inst)
+int m68000_exec_andi_ori_flexible(struct m68000 *m68k, struct memory *mem, gword inst, int opcode)
 {
 	int result;
 	struct operand_info dest;
@@ -870,7 +940,15 @@ int m68000_exec_andi(struct m68000 *m68k, struct memory *mem, gword inst)
 	
 	source_val = m68000_get_immediate_value(m68k, mem, dest.size);
 
-	dest_val &= source_val;
+	switch(opcode) {
+		case OPCODE_ANDI:
+			dest_val &= source_val;
+			break;
+		case OPCODE_ORI:
+			dest_val |= source_val;
+			break;
+	}
+
 
 	m68000_inst_set_operand_dest(m68k, mem, &dest, dest_val);
 
@@ -893,6 +971,7 @@ int m68000_exec_andi(struct m68000 *m68k, struct memory *mem, gword inst)
 		CC(dest.size == sizeof(glong) ? BASE_TIME_ANDI_DN_L: BASE_TIME_ANDI_DN_BW);
 	} else {
 		CC(dest.size == sizeof(glong) ? BASE_TIME_ANDI_M_L: BASE_TIME_ANDI_M_BW);
+		CC(OI_TIME(dest));
 	}
 
 	return result;
@@ -954,10 +1033,6 @@ int m68000_exec_and_or(struct m68000 *m68k, struct memory *mem, gword inst,
 	glong operands[2];
 	glong and_result;
 
-/* AND operation mode */
-#define AND_EA_TO_REG 0
-#define AND_REG_TO_EA 1
-	
 	regno = BITS_9_11(inst);
 	opmode = BITS_6_8(inst);
 
@@ -999,7 +1074,7 @@ int m68000_exec_and_or(struct m68000 *m68k, struct memory *mem, gword inst,
 
 	glong_crop(and_result, ea.size);
 
-	if(operation_mode == AND_EA_TO_REG) {
+	if(operation_mode == EA_TO_REG) {
 		m68000_register_set(m68k, M68000_REGISTER_D0 + regno,
 					and_result, ea.size);
 		CC(ea.size == sizeof(glong) ?
@@ -1290,12 +1365,12 @@ int m68000_exec_rod(struct m68000 *m68k, struct memory *mem, gword inst)
 
 int m68000_exec_rts(struct m68000 *m68k)
 {
-	glong *popped;
+	glong popped;
 
 	popped = stack_pop(&m68k->system_stack);
-	m68000_register_set(m68k, M68000_REGISTER_A7,(glong)  m68k->system_stack.stack_ptr,
-					sizeof(glong));
-	m68k->pc = *popped;
+	m68000_register_set(m68k, M68000_REGISTER_A7,
+			m68k->system_stack.stack_pointer, sizeof(glong));
+	m68k->pc = popped;
 
 	CC(BASE_TIME_RTS);
 }
@@ -1323,19 +1398,63 @@ int m68000_exec_clr(struct m68000 *m68k, struct memory *mem, gword inst)
 	}
 }
 
+int m68000_exec_cmp_flexible(struct m68000 *m68k, struct memory *mem, gword inst, int opcode)
+{
+	struct operand_info src;
+	enum M68000_REGISTER dest_reg; /* dest data reg */
+	glong dest_val;
+	glong source_val;
+	int r;
+	
+	/*
+	ignoring the opmode field and letting the m68000_inst_get_operand_info
+	get the size for us
+	*/
+	src.size = 0;
+	r = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &src);
+	assert(r == 0);
+
+	source_val = m68000_inst_get_operand_source_val(m68k, mem, &src);
+	
+	if(opcode == OPCODE_CMP) {
+		/* CMP uses Dn */
+		dest_reg = M68000_REGISTER_D0 + BITS_9_11(inst);
+	} else {
+		/* CMPA uses An */
+		dest_reg = M68000_REGISTER_D0 + BITS_9_11(inst);
+	}
+
+	dest_val = m68000_register_get(m68k, dest_reg, src.size, 1);
+	
+	m68000_cmp_generalised(m68k, source_val, dest_val);
+
+	CC(src.size == sizeof(glong) ? BASE_TIME_CMP_L : BASE_TIME_CMP_BW);
+
+	return 0;
+}
+
 int m68000_exec_cmpi(struct m68000 *m68k, struct memory *mem, gword inst)
 {
-	struct operand_info ea;
+	struct operand_info dest;
 	int result;
 	glong dest_val, source_val;
 
-	ea.size = 0;
-	result = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &ea);
+	dest.size = 0;
+	result = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &dest);
 	assert(result == 0);
-	dest_val = m68000_inst_get_operand_source_val(m68k, mem, &ea);
-	source_val = m68000_get_immediate_value(m68k, mem, ea.size);
+	dest_val = m68000_inst_get_operand_source_val(m68k, mem, &dest);
+	source_val = m68000_get_immediate_value(m68k, mem, dest.size);
 
 	m68000_cmp_generalised(m68k, source_val, dest_val);
+	
+	if(dest.type == OPERAND_TYPE_REGISTER) {
+		CC(dest.size == sizeof(glong) ? BASE_TIME_CMPI_DN_L: BASE_TIME_CMPI_DN_BW);
+	} else {
+		CC(dest.size == sizeof(glong) ? BASE_TIME_CMPI_M_L: BASE_TIME_CMPI_M_BW);
+		CC(OI_TIME(dest));
+	}
+
+	return 0;
 }
 
 /* generalised CMP function. expected sign extended values */
@@ -1354,6 +1473,284 @@ int m68000_cmp_generalised(struct m68000 *m68k, glong src, glong dest)
 	Note this test is probably wrong or naive.
 	*/
 	CCR_C_SETX(m68k->status, src > dest);
+
+	return 0;
+}
+
+glong m68000_eor_generalised(struct m68000 *m68k, glong src, glong dest, int size)
+{
+	glong out;
+
+	out = src ^ dest;
+
+	CCR_N_SETX(m68k->status, IS_NEG(out, size));
+	CCR_Z_SETX(m68k->status, out == 0);
+	CCR_V_UNSET(m68k->status);
+	CCR_C_UNSET(m68k->status);
+}
+
+int m68000_exec_eori(struct m68000 *m68k, struct memory *mem, gword inst)
+{
+	struct operand_info dest;
+	int result;
+	glong dest_val, source_val, n;
+
+	dest.size = 0;
+	result = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &dest);
+	assert(result == 0);
+	dest_val = m68000_inst_get_operand_source_val(m68k, mem, &dest);
+	source_val = m68000_get_immediate_value(m68k, mem, dest.size);
+
+	n = m68000_eor_generalised(m68k, source_val, dest_val, dest.size);
+
+	m68000_inst_set_operand_dest(m68k, mem, &dest, n);
+	
+	if(dest.type == OPERAND_TYPE_REGISTER) {
+		CC(dest.size == sizeof(glong) ? BASE_TIME_EORI_DN_L: BASE_TIME_EORI_DN_BW);
+	} else {
+		CC(dest.size == sizeof(glong) ? BASE_TIME_EORI_M_L: BASE_TIME_EORI_M_BW);
+		CC(OI_TIME(dest));
+	}
+
+	return 0;
+}
+
+int m68000_exec_add_sub_flexible(struct m68000 *m68k, struct memory *mem,
+						gword inst, int opcode)
+{
+	enum M68000_REGISTER reg;
+	struct operand_info ea;
+	int r;
+	glong source_val, dest_val, val;
+	int opmode, operation_mode;
+
+	opmode = BITS_6_8(inst);
+
+	if((opcode == OPCODE_ADD) || (opcode == OPCODE_SUB)) {
+		if(BITS_3(opmode)) {
+			operation_mode = REG_TO_EA;
+			/* now we have noted the mode, fudge the instruction */
+			/* make the size field to the expected format */
+			inst = unset_bit(inst, 8);
+		} else {
+			operation_mode = EA_TO_REG;
+		}
+	} else if((opcode == OPCODE_ADDA) || (opcode == OPCODE_SUBA)) {
+		operation_mode = EA_TO_REG;
+	}
+
+	ea.size = 0;
+	r = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &ea);
+	assert(r == 0);
+
+	reg = BITS_9_11(inst);
+	switch(opcode) {
+		case OPCODE_ADD:
+		case OPCODE_SUB:
+			reg += M68000_REGISTER_D0;
+			break;
+		case OPCODE_SUBA:
+			reg += M68000_REGISTER_A0;
+			break;
+	}
+
+	if(operation_mode == EA_TO_REG) {
+		dest_val = m68000_register_get(m68k, reg, ea.size, 1);
+		source_val = m68000_inst_get_operand_source_val(m68k, mem, &ea);
+	} else { /* REG_TO_EA */
+		source_val = m68000_register_get(m68k, reg, ea.size, 1);
+		dest_val = m68000_inst_get_operand_source_val(m68k, mem, &ea);
+	}
+	
+	switch(REAL_OPCODE(opcode)) {
+		case OPCODE_ADDADDX:
+			val = m68000_add_sub_generalised(m68k, source_val, dest_val,
+							ea.size, OPCODE_ADD, 1);
+			break;
+		case OPCODE_SUBSUBX:
+			val = m68000_add_sub_generalised(m68k, source_val, dest_val,
+							ea.size, OPCODE_SUB, 1);
+			break;
+	}
+
+	if(operation_mode == EA_TO_REG) {
+		m68000_register_set(m68k, reg, val, ea.size);
+	} else {
+		m68000_inst_set_operand_dest(m68k, mem, &ea, val);
+	}
+
+	/* timing for SUB is the same as ADD */
+
+	if(opcode == OPCODE_SUB) {
+		opcode = OPCODE_ADD;
+	}
+
+	if((opcode == OPCODE_ADD) || (opcode == OPCODE_ADDA)) {
+		if(operation_mode == REG_TO_EA) {
+			/* only OPCODE_ADD applicable here */
+			CC(ea.size == sizeof(glong) ? BASE_TIME_ADD_REG_TO_EA_L:
+						BASE_TIME_ADD_REG_TO_EA_BW);
+		} else { /* EA_TO_REG */
+			if(opcode == OPCODE_ADD) {
+				CC(ea.size == sizeof(glong) ? BASE_TIME_ADD_EA_TO_REG_L:
+							BASE_TIME_ADD_EA_TO_REG_BW);
+			} else if(opcode == OPCODE_ADDA) {
+				CC(ea.size == sizeof(glong) ? BASE_TIME_ADDA_EA_TO_REG_L:
+							BASE_TIME_ADDA_EA_TO_REG_BW);
+			}
+			if((ea.type == OPERAND_TYPE_REGISTER) || 
+				(ea.type == OPERAND_TYPE_IMMEDIATE)) {
+				CC(2);
+			}
+		}
+		CC(OI_TIME(ea));
+	}
+
+	return 0;
+}
+
+/* expects opcode as OPCODE_ADD or OPCODE_SUB to decide whether to add or subtract */
+glong m68000_add_sub_generalised(struct m68000 *m68k, glong source, glong dest,
+					int size, int opcode, int affect_ccr)
+{
+	glong gresult;
+
+	/*
+	here we use the correct integer widths so overflow and wraparound is
+	done automatically
+	*/
+	if(size == sizeof(byte)) {
+		byte result;
+		if(opcode == OPCODE_ADD) {
+			result = dest + source;
+		} else {
+			result = dest - source;
+		}
+		gresult = result;
+	} else if(size == sizeof(gword)) {
+		gword result;
+		if(opcode == OPCODE_ADD) {
+			result = dest + source;
+		} else {
+			result = dest - source;
+		}
+		gresult = result;
+	} else if(size == sizeof(glong)) {
+		glong result;
+		if(opcode == OPCODE_ADD) {
+			result = dest + source;
+		} else {
+			result = result - dest;
+		}
+		gresult = result;
+	}
+
+	if(affect_ccr) {
+		CCR_N_SETX(m68k->status, gresult < 0);
+		CCR_Z_SETX(m68k->status, gresult == 0);
+		/* do we have overflow? */
+		if(opcode == OPCODE_ADD) {
+			CCR_V_SETX(m68k->status, (gresult < source) && (dest > 0));
+		} else {
+			CCR_V_SETX(m68k->status, (gresult > source) && (dest > 0));
+		}
+		/* XXX: Carry flag not set */
+		CCR_C_UNSET(m68k->status);
+		CCR_X_SETX(m68k->status, CCR_C(m68k->status));
+	}
+
+	return gresult;
+}
+
+int m68000_exec_addq_subq_flexible(struct m68000 *m68k, struct memory *mem, gword inst, int opcode)
+{
+	struct operand_info ea;
+	int data_immediate;
+	glong data_ea;
+	glong result;
+	int r;
+
+	r = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &ea);
+	assert(r == 0);
+	data_ea = m68000_inst_get_operand_source_val(m68k, mem, &ea);
+
+	data_immediate = BITS_9_11(inst);
+	if(data_immediate == 0) {
+		data_immediate = 8;
+	}
+	
+	result = m68000_add_sub_generalised(m68k, data_immediate, data_ea,
+					ea.size, opcode == OPCODE_ADDQ ?
+							OPCODE_ADD : OPCODE_SUB,
+					ea.mode != ADDRESSING_MODE_AN);
+
+
+	if(ea.type == OPERAND_TYPE_REGISTER) {
+		CC(ea.size == sizeof(glong) ?
+				BASE_TIME_ADDQ_SUBQ_TO_REG_BW :
+				BASE_TIME_ADDQ_SUBQ_TO_REG_L);
+	} else {
+		CC(ea.size == sizeof(glong) ?
+				BASE_TIME_ADDQ_SUBQ_TO_MEM_BW :
+				BASE_TIME_ADDQ_SUBQ_TO_MEM_L);
+		CC(OI_TIME(ea));
+	}
+	
+	if(ea.mode == ADDRESSING_MODE_AN) {
+		/*
+		the PRM says that AN mode width WORD size affects the
+		whole register. I am presuming this means we read the first
+		16 bits but affect all 32 bits upon writing.
+		So we will now say the size is LONG so that all bits are affected.
+		*/
+		ea.size = sizeof(glong);
+	}
+
+	m68000_inst_set_operand_dest(m68k, mem, &ea, result);
+
+	return 0;
+}
+
+int m68000_exec_btst(struct m68000 *m68k, struct memory *mem, gword inst)
+{
+	struct operand_info dest_ea;
+	glong bit_number, dest_val;
+	
+	/*
+	do not automatically deduce the size. The size is complicated
+	here because it depends on whether the destination is a register or memory.
+	*/
+	dest_ea.size = -1;
+	m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &dest_ea);
+	dest_ea.size = dest_ea.type == OPERAND_TYPE_REGISTER ? 
+						sizeof(glong) :
+						sizeof(byte);
+	dest_val = m68000_inst_get_operand_source_val(m68k, mem, &dest_ea);
+
+	if(BITS_8(inst)) {
+		/* get bit number from register */
+		/* aka Dynamic bit number */
+		enum M68000_REGISTER reg;
+
+		reg = M68000_REGISTER_D0 + BITS_9_11(inst);
+		/* bit number must be modulo'd depending on dest type */
+		bit_number = m68000_register_get(m68k, reg, sizeof(glong), 0);
+	} else {
+		/* get bit number from memory */
+		/* aka Static bit number */
+		bit_number = m68000_get_immediate_value(m68k, mem, sizeof(byte));
+	}
+
+	if(dest_ea.type == OPERAND_TYPE_REGISTER) {
+		bit_number %= 32;
+		CC(BITS_8(inst) ? BASE_TIME_BTST_DYNAMIC_REG_L : BASE_TIME_BTST_DYNAMIC_MEM_B);
+	} else {
+		bit_number %= 8;
+		CC(BITS_8(inst) ? BASE_TIME_BTST_STATIC_REG_L : BASE_TIME_BTST_STATIC_MEM_B);
+		CC(OI_TIME(dest_ea));
+	}
+
+	CCR_Z_SETX(m68k->status, get_bit(dest_val, bit_number) == 0);
 
 	return 0;
 }
