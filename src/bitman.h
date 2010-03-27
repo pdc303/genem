@@ -17,6 +17,7 @@
 /* get bits 6 and 7 of a value */
 #define BITS_6_7(w) ((w & 0xC0) >> 6)
 #define BITS_6_8(w) ((w >> 6) & 0x7)
+#define BITS_6_15(w) ((w >> 6) & 0x3FF)
 #define BITS_7(w) ((w & 0x80) >> 7)
 #define BITS_8(w) ((w >> 8) & 0x01)
 #define BITS_8_15(w) ((w & 0xFFFFFF00) >> 8)
@@ -47,7 +48,7 @@ glong decode_2c(glong val, int size);
 /* get bit 'bitno' from 'src' */
 int get_bit(glong src, int bitno);
 int set_bit(glong x, int bitno);
-int unset_bit(glong x, int bitno);
+glong unset_bit(glong x, int bitno);
 glong set_bit_to_val(glong x, int bitno, int val);
 glong rotate_bits(glong x, int high, int low, int count, enum LR lr);
 
