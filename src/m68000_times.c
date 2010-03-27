@@ -89,6 +89,19 @@ enum BASE_TIME {
 	BASE_TIME_ANDI_DN_L = 14, /* ANDI, DN operand, Long */
 	BASE_TIME_ANDI_M_BW = 12, /* ANDI, Memory operand, Byte/Word */
 	BASE_TIME_ANDI_M_L = 20, /* ANDI, Memory operand, Long */
+	
+	BASE_TIME_CMPI_DN_BW = 8, /* CMPI, DN operand, Byte/Word */
+	BASE_TIME_CMPI_DN_L = 14, /* CMPI, DN operand, Long */
+	BASE_TIME_CMPI_M_BW = 8, /* CMPI, Memory operand, Byte/Word */
+	BASE_TIME_CMPI_M_L = 12, /* CMPI, Memory operand, Long */
+	
+	BASE_TIME_CMP_L = 4, /* CMP, Long */
+	BASE_TIME_CMP_BW = 6, /* CMP, Byte/Word */
+	
+	BASE_TIME_EORI_DN_BW = 8, /* EORI, DN operand, Byte/Word */
+	BASE_TIME_EORI_DN_L = 16, /* EORI, DN operand, Long */
+	BASE_TIME_EORI_M_BW = 12, /* EORI, Memory operand, Byte/Word */
+	BASE_TIME_EORI_M_L = 20, /* EORI, Memory operand, Long */
 
 	BASE_TIME_AND_EA_TO_REG_BW = 4, /* AND EA->REG, Byte/Word */
 	BASE_TIME_AND_EA_TO_REG_L = 6, 
@@ -111,4 +124,24 @@ enum BASE_TIME {
 	BASE_TIME_CLR_MEM_BW = 8, /* CLR, Memory, Byte/Word */
 	BASE_TIME_CLR_REG_L = 6, /* CLR, Register, Byte/Word */
 	BASE_TIME_CLR_MEM_L = 12, /* CLR, Memory, Byte/Word */
+
+	BASE_TIME_ADD_EA_TO_REG_BW = 4, /* ADD, EA+REG->REG, Byte/Word */
+	BASE_TIME_ADD_EA_TO_REG_L = 6, /* ADD, EA+REG->REG, Long */
+	BASE_TIME_ADD_REG_TO_EA_BW = 8, /* ADD, REG+EA->EA, Byte/Word */
+	BASE_TIME_ADD_REG_TO_EA_L = 12, /* ADD, REG+EA->EA, Long */
+	
+	BASE_TIME_ADDA_EA_TO_REG_BW = 4, /* ADDA, EA+REG->REG, Byte/Word */
+	BASE_TIME_ADDA_EA_TO_REG_L = 6, /* ADDA, EA+REG->REG, Long */
+	BASE_TIME_ADDA_REG_TO_EA_BW = BASE_TIME_ADD_REG_TO_EA_BW, /* ADDA, REG+EA->EA, Byte/Word */
+	BASE_TIME_ADDA_REG_TO_EA_L = BASE_TIME_ADD_REG_TO_EA_L, /* ADDA, REG+EA->EA, Long */
+
+	BASE_TIME_ADDQ_SUBQ_TO_REG_BW = 4, /* ADDQ/SUBQ, dest=reg, Byte/Word */
+	BASE_TIME_ADDQ_SUBQ_TO_REG_L = 8, /* ADDQ/SUBQ, dest=reg, Long */
+	BASE_TIME_ADDQ_SUBQ_TO_MEM_BW = 4, /* ADDQ/SUBQ, dest=mem, Byte/Word */
+	BASE_TIME_ADDQ_SUBQ_TO_MEM_L = 8, /* ADDQ/SUBQ, dest=mem, Long */
+
+	BASE_TIME_BTST_DYNAMIC_REG_L = 6, /* BTST, Dynamic bit number, dest=reg */
+	BASE_TIME_BTST_DYNAMIC_MEM_B = 4, /* BTST, Dynamic bit number, dest=mem */
+	BASE_TIME_BTST_STATIC_REG_L = 10, /* BTST, Static bit number, dest=reg */
+	BASE_TIME_BTST_STATIC_MEM_B = 8, /* BTST, Static bit number, dest=mem */
 };
