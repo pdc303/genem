@@ -69,6 +69,10 @@ void debug_print(int log, const char *file, int line, enum OUTPUT_LEVEL level,
 		fclose(fp);
 	}
 
+	if(level >= WARN) {
+		fgetc(stdin);
+	}
+
 	if(level == FATAL) {
 		abort();
 	}
