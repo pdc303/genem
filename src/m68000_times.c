@@ -144,4 +144,6 @@ enum BASE_TIME {
 	BASE_TIME_BTST_DYNAMIC_MEM_B = 4, /* BTST, Dynamic bit number, dest=mem */
 	BASE_TIME_BTST_STATIC_REG_L = 10, /* BTST, Static bit number, dest=reg */
 	BASE_TIME_BTST_STATIC_MEM_B = 8, /* BTST, Static bit number, dest=mem */
+	
+	BASE_TIME_NOP = 4,
 };
