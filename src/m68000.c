@@ -43,14 +43,14 @@ const char* opcode_names[256] =
 	[OPCODE_SUB] = "SUB",
 	[OPCODE_SUBA] = "SUBA",
 	[OPCODE_BTST] = "BTST",
+	[OPCODE_NOP] = "NOP",
 };
 
 int m68000_init(struct m68000 *m68k)
 {
 	memset(m68k, 0, sizeof(*m68k));
 	m68000_init_register_pointers_array(m68k);
-	stack_init(&m68k->system_stack, SYSTEM_STACK_SIZE,
-			0xFFFFFF - sizeof(struct stack) - (sizeof(glong) * SYSTEM_STACK_SIZE));
+	m68k->a7 = SYSTEM_STACK_POS;
 
 	return 0;
 }
@@ -147,7 +147,7 @@ int m68000_exec(struct m68000 *m68k, struct memory *mem)
 			result = m68000_exec_rod(m68k, mem, inst);
 			break;
 		case OPCODE_RTS:
-			result = m68000_exec_rts(m68k);
+			result = m68000_exec_rts(m68k, mem);
 			break;
 		case OPCODE_CLR:
 			result = m68000_exec_clr(m68k, mem, inst);
@@ -168,6 +168,9 @@ int m68000_exec(struct m68000 *m68k, struct memory *mem)
 			break;
 		case OPCODE_BTST:
 			result = m68000_exec_btst(m68k, mem,  inst);
+			break;
+		case OPCODE_NOP:
+			result = m68000_exec_nop(m68k);
 			break;
 		case OPCODE_MULU:
 		case OPCODE_ABCD:
@@ -204,6 +207,8 @@ int m68000_decode_opcode(gword inst)
 				return OPCODE_RTS;
 			} else if(INST_MISC_IS_CLR(inst)) {
 				return OPCODE_CLR;
+			} else if(INST_MISC_IS_NOP(inst)) {
+				return OPCODE_NOP;
 			}
 			break;
 		case OPCODE_BITMANIP:
@@ -483,6 +488,7 @@ int m68000_inst_get_operand_info(struct m68000 *m68k, struct memory *mem, gword 
 m68000_inst_get_source_info_out:
 	return 0;
 m68000_inst_get_source_info_error:
+	dbg_f("Unable to get operand info from instruction");
 	return -1;
 }
 
@@ -731,10 +737,10 @@ int m68000_exec_branch(struct m68000 *m68k, struct memory *mem, gword inst)
 			After a subroutine, execution should continue
 			at the next instruction. Our pc will be at that location
 			*/
-			stack_push(&m68k->system_stack, future_pc);
-			m68000_register_set(m68k, M68000_REGISTER_A7,
-						m68k->system_stack.stack_pointer,
-						sizeof(glong));
+			
+			/* put the value on the stack */
+			memory_write(mem, m68k->a7, &future_pc, sizeof(glong), 1, NULL);
+			m68k->a7 -= sizeof(glong);
 			/* fall through */
 			}
 		case CONDITION_BRA:
@@ -794,6 +800,11 @@ int m68000_exec_dbcc(struct m68000 *m68k, struct memory *mem, gword inst)
 	*/
 
 	displacement_base = m68k->pc;
+	/*
+	initialise displacement because valgrind complained it never
+	got initialised before being used, even though it did.
+	*/
+	displacement = 0;
 
 	condition = BITS_8_11(inst);
 
@@ -1177,7 +1188,8 @@ glong m68000_register_get(struct m68000 *m68k, enum M68000_REGISTER reg, int siz
 
 int m68000_exec_lsd(struct m68000 *m68k, struct memory *mem, gword inst)
 {
-	int ir, dr, cr, reg, shift_count;
+	int ir, dr, cr, shift_count;
+	enum M68000_REGISTER reg;
 	int shift_type;
 	struct operand_info ea;
 	int result;
@@ -1266,8 +1278,12 @@ int m68000_exec_lsd(struct m68000 *m68k, struct memory *mem, gword inst)
 	CCR_V_UNSET(m68k->status);
 
 	/* now to put the shifted value in the dest */
-
-	m68000_inst_set_operand_dest(m68k, mem, &ea, to_shift);
+	
+	if(shift_type == LSD_REGISTER_SHIFT) {
+		m68000_register_set(m68k, reg, to_shift, ea.size);
+	} else {
+		m68000_inst_set_operand_dest(m68k, mem, &ea, to_shift);
+	}
 	CC(BASE_TIME_LSD_MEM);
 	if(shift_type == LSD_REGISTER_SHIFT) {
 		CC(ea.size == sizeof(glong) ? 
@@ -1351,27 +1367,34 @@ int m68000_exec_rod(struct m68000 *m68k, struct memory *mem, gword inst)
 	CCR_V_UNSET(m68k->status);
 
 	/* now to put the shifted value in the dest */
-	m68000_inst_set_operand_dest(m68k, mem, &ea, to_shift);
 	if(shift_type == LSD_REGISTER_SHIFT) {
+		m68000_register_set(m68k, reg, to_shift, ea.size);
 		CC(ea.size == sizeof(glong) ? 
 			BASE_TIME_ROD_REG_L : BASE_TIME_ROD_REG_BW);
 		CC(2 * shift_count);
 	} else {
+		m68000_inst_set_operand_dest(m68k, mem, &ea, to_shift);
 		CC(BASE_TIME_ROD_MEM);
 	}
 
 	return 0;
 }
 
-int m68000_exec_rts(struct m68000 *m68k)
+int m68000_exec_rts(struct m68000 *m68k, struct memory *mem)
 {
 	glong popped;
 
-	popped = stack_pop(&m68k->system_stack);
-	m68000_register_set(m68k, M68000_REGISTER_A7,
-			m68k->system_stack.stack_pointer, sizeof(glong));
-	m68k->pc = popped;
+#if 0
+	popped = stack_pop(m68k->system_stack);
 
+	m68000_register_set(m68k, M68000_REGISTER_A7,
+			m68k->system_stack->stack_pointer, sizeof(glong));
+	m68k->pc = popped;
+#endif
+	m68k->a7 += sizeof(glong);
+	memory_request(mem, m68k->a7, &popped, sizeof(glong), 1, NULL);
+	m68k->pc = popped;
+	
 	CC(BASE_TIME_RTS);
 }
 
@@ -1670,6 +1693,7 @@ int m68000_exec_addq_subq_flexible(struct m68000 *m68k, struct memory *mem, gwor
 	glong result;
 	int r;
 
+	ea.size = 0;
 	r = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &ea);
 	assert(r == 0);
 	data_ea = m68000_inst_get_operand_source_val(m68k, mem, &ea);
@@ -1754,3 +1778,9 @@ int m68000_exec_btst(struct m68000 *m68k, struct memory *mem, gword inst)
 
 	return 0;
 }
+
+int m68000_exec_nop(struct m68000 *m68k)
+{
+	CC(BASE_TIME_NOP);
+}
+
