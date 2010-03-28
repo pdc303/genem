@@ -6,8 +6,8 @@
 #include "stack.h"
 #include "bitman.h"
 
-//#define SYSTEM_STACK_SIZE 65536 // 64k
-#define SYSTEM_STACK_SIZE 32
+/* the location of the first item in the system stack */
+#define SYSTEM_STACK_POS (GENESIS_MEMORY_LEN - sizeof(glong))
 
 #define OPERAND_SOURCE 0
 #define OPERAND_DEST 1
@@ -59,6 +59,7 @@ representing the fake operand in particular
 #define OPCODE_LEA GENERATE_FAKE_OPCODE(OPCODE_MISC, 1)
 #define OPCODE_RTS GENERATE_FAKE_OPCODE(OPCODE_MISC, 2)
 #define OPCODE_CLR GENERATE_FAKE_OPCODE(OPCODE_MISC, 3)
+#define OPCODE_NOP GENERATE_FAKE_OPCODE(OPCODE_MISC, 4)
 
 #define OPCODE_ANDI GENERATE_FAKE_OPCODE(OPCODE_BITMANIP, 0)
 #define OPCODE_CMPI GENERATE_FAKE_OPCODE(OPCODE_BITMANIP, 1)
@@ -106,6 +107,7 @@ representing the fake operand in particular
 #define INST_MISC_IS_LEA(inst) ((BITS_12_15(inst) == 0x4) && (BITS_6_8(inst) == 0x7))
 #define INST_MISC_IS_RTS(inst) (inst == 0x4E75)
 #define INST_MISC_IS_CLR(inst) (BITS_8_15(inst) == 0x42)
+#define INST_MISC_IS_NOP(inst) (inst == 0x4E71)
 
 /* BRANCH */
 #define CONDITION_BRA 0x0
@@ -424,7 +426,7 @@ struct m68000
 	glong fpsr;
 	glong fpiar;
 	void *register_pointers[M68000_REGISTER_NUM];
-	struct stack system_stack;
+	struct stack *system_stack;
 
 	gclock_t cycles;
 };
@@ -507,7 +509,7 @@ void m68000_register_set(struct m68000 *m68k, enum M68000_REGISTER reg, glong va
 glong m68000_register_get(struct m68000 *m68k, enum M68000_REGISTER reg, int size, int decode);
 int m68000_exec_lsd(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_rod(struct m68000 *m68k, struct memory *mem, gword inst);
-int m68000_exec_rts(struct m68000 *m68k);
+int m68000_exec_rts(struct m68000 *m68k, struct memory *mem);
 int m68000_exec_dbcc(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_clr(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_cmpi(struct m68000 *m68k, struct memory *mem, gword inst);
@@ -521,4 +523,5 @@ glong m68000_add_sub_generalised(struct m68000 *m68k, glong source, glong dest,
 					int size, int opcode, int affect_ccr);
 int m68000_exec_addq_subq_flexible(struct m68000 *m68k, struct memory *mem, gword inst, int opcode);
 int m68000_exec_btst(struct m68000 *m68k, struct memory *mem, gword inst);
+int m68000_exec_nop(struct m68000 *m68k);
 #endif /* __M68000_H__ */
