@@ -42,21 +42,21 @@ glong decode_2c(glong val, int size)
 
 	switch(size) {
 		case sizeof(byte):
-			if(!BITS_7(val)) {
+			if(!BIT(val, 7)) {
 				result = val;
 			} else {
 				result = -LONG_BYTE(inv);
 			}
 			break;
 		case sizeof(gword):
-			if(!BITS_15(val)) {
+			if(!BIT(val, 15)) {
 				result = val;
 			} else {
 				result = -LONG_WORD(inv);
 			}
 			break;
 		case sizeof(glong):
-			if(!BITS_31(val)) {
+			if(!BIT(val, 31)) {
 				result = val;
 			} else {
 				result = -inv;
