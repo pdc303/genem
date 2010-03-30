@@ -44,6 +44,8 @@ const char* opcode_names[256] =
 	[OPCODE_SUBA] = "SUBA",
 	[OPCODE_BTST] = "BTST",
 	[OPCODE_NOP] = "NOP",
+	[OPCODE_MOVEM] = "MOVEM",
+	[OPCODE_MOVEUSP] = "MOVE USP",
 };
 
 int m68000_init(struct m68000 *m68k)
@@ -172,6 +174,12 @@ int m68000_exec(struct m68000 *m68k, struct memory *mem)
 		case OPCODE_NOP:
 			result = m68000_exec_nop(m68k);
 			break;
+		case OPCODE_MOVEM:
+			result = m68000_exec_movem(m68k, mem,  inst);
+			break;
+		case OPCODE_MOVEUSP:
+			result = m68000_exec_moveusp(m68k, mem,  inst);
+			break;
 		case OPCODE_MULU:
 		case OPCODE_ABCD:
 		case OPCODE_MULS:
@@ -209,6 +217,10 @@ int m68000_decode_opcode(gword inst)
 				return OPCODE_CLR;
 			} else if(INST_MISC_IS_NOP(inst)) {
 				return OPCODE_NOP;
+			} else if(INST_MISC_IS_MOVEM(inst)) {
+				return OPCODE_MOVEM;
+			} else if(INST_MISC_IS_MOVEUSP(inst)) {
+				return OPCODE_MOVEUSP;
 			}
 			break;
 		case OPCODE_BITMANIP:
@@ -298,7 +310,7 @@ int m68000_exec_moveq(struct m68000 *m68k, gword inst)
 	enum M68000_REGISTER reg;
 
 	data = WORD_BYTE(inst);
-	reg = M68000_REGISTER_D0 + BITS_9_11(inst);
+	reg = M68000_REGISTER_D0 + BITS(inst, 9, 11);
 
 	m68000_register_set(m68k, reg, (glong) data, sizeof(glong));
 
@@ -505,6 +517,9 @@ int m68000_inst_get_operand_source_val(struct m68000 *m68k, struct memory *mem,
 			break;
 		case OPERAND_TYPE_INDIRECT:
 			memory_request(mem, oi->address, &source_val, oi->size, 1, &m68k->cycles);
+//			if(oi->mode == ADDRESSING_MODE_AN_IND_POSTINC) {
+//				PM68000_REG_ENUM_INCX(m68k, oi->reg, sizeof(gword));
+//			}
 			break;
 		case OPERAND_TYPE_IMMEDIATE:
 			source_val = m68000_get_immediate_value(m68k, mem, oi->size);
@@ -563,14 +578,14 @@ int m68000_inst_get_operand_size(struct m68000 *m68k, struct memory *mem, gword 
 		get picked in the AND function
 		*/
 		case OPCODE_AND:
-			return 0;
+				return 0;
 		/* end of opcodes with no size information needed */
 		case OPCODE_MOVEB:
 		case OPCODE_MOVEL:
 		case OPCODE_MOVEW:
-			size_format = 1;
-			size = BITS_12_13(inst);
-			break;
+				size_format = 1;
+				size = BITS(inst, 12, 13);
+				break;
 		case OPCODE_ANDI:
 		case OPCODE_ORI:
 		case OPCODE_CMPI:
@@ -585,13 +600,16 @@ int m68000_inst_get_operand_size(struct m68000 *m68k, struct memory *mem, gword 
 		case OPCODE_ADDQ:
 		case OPCODE_SUBQ:
 				size_format = 2;
-				size = BITS_6_7(inst);
-			break;
+				size = BITS(inst, 6, 7);
+				break;
 		case OPCODE_ADDA:
 		case OPCODE_SUBA:
 				size_format = 3;
-				size = BITS_6_8(inst);
-			break;
+				size = BITS(inst, 6, 8);
+				break;
+		case OPCODE_MOVEM:
+				size_format = 4;
+				size = BIT(inst, 6);
 	}
 
 	if(size != -1) {
@@ -629,6 +647,17 @@ int m68000_inst_get_operand_size(struct m68000 *m68k, struct memory *mem, gword 
 					bytes = sizeof(gword);
 					break;
 				case 7:
+					bytes = sizeof(glong);
+					break;
+				default:
+					dbg_f("Bad size field value");
+			}
+		} else if(size_format == 4) {
+			switch(size) {
+				case 0:
+					bytes = sizeof(gword);
+					break;
+				case 1:
 					bytes = sizeof(glong);
 					break;
 				default:
@@ -706,7 +735,7 @@ int m68000_exec_branch(struct m68000 *m68k, struct memory *mem, gword inst)
 
 	displacement_base = m68k->pc;
 	
-	condition = BITS_8_11(inst);
+	condition = BITS(inst, 8, 11);
 	condition_true = 0;
 
 	/*
@@ -714,7 +743,7 @@ int m68000_exec_branch(struct m68000 *m68k, struct memory *mem, gword inst)
 	or not,	so look it up
 	*/
 		
-	displacement = decode_2c(BITS_0_7(inst), sizeof(byte));
+	displacement = decode_2c(BITS(inst, 0, 7), sizeof(byte));
 	if(displacement == 0x00) {
 		displacement_size = sizeof(gword);
 	} else if(displacement == 0xFF) {
@@ -806,7 +835,7 @@ int m68000_exec_dbcc(struct m68000 *m68k, struct memory *mem, gword inst)
 	*/
 	displacement = 0;
 
-	condition = BITS_8_11(inst);
+	condition = BITS(inst, 8, 11);
 
 	condition_true = m68000_test_condition(m68k, condition);
 
@@ -1001,7 +1030,7 @@ int m68000_exec_lea(struct m68000 *m68k, struct memory *mem, gword inst)
 	assert(result == 0);
 
 	/* get the Address register to store the result */
-	regno = BITS_9_11(inst);
+	regno = BITS(inst, 9, 11);
 
 	switch(ea.type) {
 		case OPERAND_TYPE_INDIRECT:
@@ -1044,11 +1073,11 @@ int m68000_exec_and_or(struct m68000 *m68k, struct memory *mem, gword inst,
 	glong operands[2];
 	glong and_result;
 
-	regno = BITS_9_11(inst);
-	opmode = BITS_6_8(inst);
+	regno = BITS(inst, 9, 11);
+	opmode = BITS(inst, 6, 8);
 
 	//operation_mode = BITS_3(opmode) >> 2;
-	operation_mode = BITS_3(opmode);
+	operation_mode = BIT(opmode, 3);
 
 	switch(opmode & 3) {
 		case 0:
@@ -1200,9 +1229,9 @@ int m68000_exec_lsd(struct m68000 *m68k, struct memory *mem, gword inst)
 
 	result = 0;
 	
-	dr = BITS_8(inst);
+	dr = BIT(inst, 8);
 
-	if(BITS_6_7(inst) == 0x3) {
+	if(BITS(inst, 6, 7) == 0x3, 6, 7) {
 		shift_type = LSD_MEMORY_SHIFT;
 	} else {
 		shift_type = LSD_REGISTER_SHIFT;
@@ -1210,7 +1239,7 @@ int m68000_exec_lsd(struct m68000 *m68k, struct memory *mem, gword inst)
 
 	if(shift_type == LSD_REGISTER_SHIFT) {
 
-		ir = BITS_5(inst);
+		ir = BIT(inst, 5);
 		ea.size = m68000_inst_get_operand_size(m68k, mem, inst);
 		reg = M68000_REGISTER_D0 + INST_SOURCE_EA_REGISTER(inst);
 
@@ -1221,7 +1250,7 @@ int m68000_exec_lsd(struct m68000 *m68k, struct memory *mem, gword inst)
 		ir = 0: this field contains the shift count.
 		ir = 1: shift count = register contents % 64.
 		*/
-		cr = BITS_9_11(inst);
+		cr = BITS(inst, 9, 11);
 
 		if(ir == 0) {
 			shift_count = cr;
@@ -1306,11 +1335,11 @@ int m68000_exec_rod(struct m68000 *m68k, struct memory *mem, gword inst)
 
 	result = 0;
 	
-	dr = BITS_8(inst);
+	dr = BIT(inst, 8);
 
 	direction = dr ? LEFT : RIGHT;
 
-	if(BITS_6_7(inst) == 0x3) {
+	if(BITS(inst, 6, 7) == 0x3) {
 		shift_type = LSD_MEMORY_SHIFT;
 	} else {
 		shift_type = LSD_REGISTER_SHIFT;
@@ -1318,7 +1347,7 @@ int m68000_exec_rod(struct m68000 *m68k, struct memory *mem, gword inst)
 
 	if(shift_type == LSD_REGISTER_SHIFT) {
 
-		ir = BITS_5(inst);
+		ir = BIT(inst, 5);
 		ea.size = m68000_inst_get_operand_size(m68k, mem, inst);
 		reg = M68000_REGISTER_D0 + INST_SOURCE_EA_REGISTER(inst);
 
@@ -1329,7 +1358,7 @@ int m68000_exec_rod(struct m68000 *m68k, struct memory *mem, gword inst)
 		ir = 0: this field contains the shift count.
 		ir = 1: shift count = register contents % 64.
 		*/
-		cr = BITS_9_11(inst);
+		cr = BITS(inst, 9, 11);
 
 		if(ir == 0) {
 			shift_count = cr;
@@ -1358,7 +1387,7 @@ int m68000_exec_rod(struct m68000 *m68k, struct memory *mem, gword inst)
 	/* grab the last rotated-out bit */
 	CCR_C_SETX(m68k->status, direction == LEFT ?
 				get_bit(to_shift, (ea.size * 8) - 2) :
-				BITS_0(to_shift))
+				BIT(to_shift, 0))
 	/* finish the rotate */
 	to_shift = rotate_bits(to_shift, (ea.size * 8) - 2, 0, 1, direction);
 
@@ -1441,10 +1470,10 @@ int m68000_exec_cmp_flexible(struct m68000 *m68k, struct memory *mem, gword inst
 	
 	if(opcode == OPCODE_CMP) {
 		/* CMP uses Dn */
-		dest_reg = M68000_REGISTER_D0 + BITS_9_11(inst);
+		dest_reg = M68000_REGISTER_D0 + BITS(inst, 9, 11);
 	} else {
 		/* CMPA uses An */
-		dest_reg = M68000_REGISTER_D0 + BITS_9_11(inst);
+		dest_reg = M68000_REGISTER_D0 + BITS(inst, 9, 11);
 	}
 
 	dest_val = m68000_register_get(m68k, dest_reg, src.size, 1);
@@ -1547,10 +1576,10 @@ int m68000_exec_add_sub_flexible(struct m68000 *m68k, struct memory *mem,
 	glong source_val, dest_val, val;
 	int opmode, operation_mode;
 
-	opmode = BITS_6_8(inst);
+	opmode = BITS(inst, 6, 8);
 
 	if((opcode == OPCODE_ADD) || (opcode == OPCODE_SUB)) {
-		if(BITS_3(opmode)) {
+		if(BIT(opmode, 3)) {
 			operation_mode = REG_TO_EA;
 			/* now we have noted the mode, fudge the instruction */
 			/* make the size field to the expected format */
@@ -1566,7 +1595,7 @@ int m68000_exec_add_sub_flexible(struct m68000 *m68k, struct memory *mem,
 	r = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &ea);
 	assert(r == 0);
 
-	reg = BITS_9_11(inst);
+	reg = BITS(inst, 9, 11);
 	switch(opcode) {
 		case OPCODE_ADD:
 		case OPCODE_SUB:
@@ -1698,7 +1727,7 @@ int m68000_exec_addq_subq_flexible(struct m68000 *m68k, struct memory *mem, gwor
 	assert(r == 0);
 	data_ea = m68000_inst_get_operand_source_val(m68k, mem, &ea);
 
-	data_immediate = BITS_9_11(inst);
+	data_immediate = BITS(inst, 9, 11);
 	if(data_immediate == 0) {
 		data_immediate = 8;
 	}
@@ -1751,12 +1780,12 @@ int m68000_exec_btst(struct m68000 *m68k, struct memory *mem, gword inst)
 						sizeof(byte);
 	dest_val = m68000_inst_get_operand_source_val(m68k, mem, &dest_ea);
 
-	if(BITS_8(inst)) {
+	if(BIT(inst, 8)) {
 		/* get bit number from register */
 		/* aka Dynamic bit number */
 		enum M68000_REGISTER reg;
 
-		reg = M68000_REGISTER_D0 + BITS_9_11(inst);
+		reg = M68000_REGISTER_D0 + BITS(inst, 9, 11);
 		/* bit number must be modulo'd depending on dest type */
 		bit_number = m68000_register_get(m68k, reg, sizeof(glong), 0);
 	} else {
@@ -1767,10 +1796,10 @@ int m68000_exec_btst(struct m68000 *m68k, struct memory *mem, gword inst)
 
 	if(dest_ea.type == OPERAND_TYPE_REGISTER) {
 		bit_number %= 32;
-		CC(BITS_8(inst) ? BASE_TIME_BTST_DYNAMIC_REG_L : BASE_TIME_BTST_DYNAMIC_MEM_B);
+		CC(BIT(inst, 8) ? BASE_TIME_BTST_DYNAMIC_REG_L : BASE_TIME_BTST_DYNAMIC_MEM_B);
 	} else {
 		bit_number %= 8;
-		CC(BITS_8(inst) ? BASE_TIME_BTST_STATIC_REG_L : BASE_TIME_BTST_STATIC_MEM_B);
+		CC(BIT(inst, 8) ? BASE_TIME_BTST_STATIC_REG_L : BASE_TIME_BTST_STATIC_MEM_B);
 		CC(OI_TIME(dest_ea));
 	}
 
@@ -1784,3 +1813,83 @@ int m68000_exec_nop(struct m68000 *m68k)
 	CC(BASE_TIME_NOP);
 }
 
+int m68000_exec_movem(struct m68000 *m68k, struct memory *mem, gword inst)
+{
+	int dr;
+	int operation_mode;
+	struct operand_info ea;
+	gword register_mask;
+	int i;
+
+	dr = BIT(inst, 10);
+
+	operation_mode = dr == 0 ? REG_TO_EA : EA_TO_REG;
+
+	ea.size = 0;
+
+	PM68000_GET_NEXT_INSTRUCTION(m68k, &register_mask);
+
+	for(i = 0; i < 16; i++) {
+		enum M68000_REGISTER reg;
+
+		if(!get_bit(register_mask, i))
+			/* nothing to do for this reg */
+			continue;
+
+		/* keep calling this so that the inc/decrement is re-performed */
+		m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &ea);
+
+		if(ea.mode == ADDRESSING_MODE_AN_IND_PREDEC) {
+			reg = M68000_REGISTER_A7 - i;
+		} else if(ea.mode == ADDRESSING_MODE_AN_IND_POSTINC) {
+			reg = M68000_REGISTER_D0 + i;
+		} else {
+			dbg_f("EA not inc or dec. We currently don't handle this "
+				"by automatically incrementing the address");
+		}
+
+		if(operation_mode == EA_TO_REG) {
+			glong val;
+			if(ea.size == sizeof(gword)) {
+				/*
+				word values from memory need to be sign-extended
+				and put in to the register as a full LONG
+				*/
+				val = memory_request_gword(mem, ea.address, 1, NULL);
+			} else {
+				val = memory_request_glong(mem, ea.address, 1, NULL);
+			}
+		
+			/* set the reg value */
+			m68000_register_set(m68k, reg, val, ea.size);
+		} else { /* REG_TO_EA */
+			glong val;
+
+			val = m68000_register_get(m68k, reg, ea.size, 1);
+			m68000_inst_set_operand_dest(m68k, mem, &ea, val);
+		}
+	}
+	
+	return 0;
+}
+
+int m68000_exec_moveusp(struct m68000 *m68k, struct memory *mem, gword inst)
+{
+	enum M68000_REGISTER reg_src, reg_dst;
+
+	if(BIT(inst, 3)) {
+		/* USP->An */
+		reg_dst = M68000_REGISTER_A0 + INST_SOURCE_EA_REGISTER(inst);
+		reg_src = M68000_REGISTER_A7;
+	} else {
+		/* An->USP */
+		reg_src = M68000_REGISTER_A0 + INST_SOURCE_EA_REGISTER(inst);
+		reg_dst = M68000_REGISTER_A7;
+	}
+	
+	m68000_register_set(m68k, reg_dst,
+		m68000_register_get(m68k, reg_src, sizeof(glong), 1),
+			sizeof(glong));
+
+	return 0;
+}

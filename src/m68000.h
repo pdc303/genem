@@ -6,6 +6,10 @@
 #include "stack.h"
 #include "bitman.h"
 
+#ifndef M68000_MHZ
+#define M68000_MHZ 4.00
+#endif
+
 /* the location of the first item in the system stack */
 #define SYSTEM_STACK_POS (GENESIS_MEMORY_LEN - sizeof(glong))
 
@@ -60,6 +64,8 @@ representing the fake operand in particular
 #define OPCODE_RTS GENERATE_FAKE_OPCODE(OPCODE_MISC, 2)
 #define OPCODE_CLR GENERATE_FAKE_OPCODE(OPCODE_MISC, 3)
 #define OPCODE_NOP GENERATE_FAKE_OPCODE(OPCODE_MISC, 4)
+#define OPCODE_MOVEM GENERATE_FAKE_OPCODE(OPCODE_MISC, 5)
+#define OPCODE_MOVEUSP GENERATE_FAKE_OPCODE(OPCODE_MISC, 6)
 
 #define OPCODE_ANDI GENERATE_FAKE_OPCODE(OPCODE_BITMANIP, 0)
 #define OPCODE_CMPI GENERATE_FAKE_OPCODE(OPCODE_BITMANIP, 1)
@@ -95,7 +101,7 @@ representing the fake operand in particular
 
 /* SIZE field values */
 
-#define INST_SIZE(inst) (BITS_6_7(inst))
+#define INST_SIZE(inst) (BITS(inst, 6, 7))
 #define SIZE_FIELD_BYTE 0x01
 #define SIZE_FIELD_WORD 0x03
 #define SIZE_FIELD_LONG 0x02
@@ -103,11 +109,13 @@ representing the fake operand in particular
 /* MISC */
 
 /* is this MISC instruction a TST ? */
-#define INST_MISC_IS_TST(inst) ((BITS_6_7(inst) != 0x3) && (BITS_8_15(inst) == 0x4A))
-#define INST_MISC_IS_LEA(inst) ((BITS_12_15(inst) == 0x4) && (BITS_6_8(inst) == 0x7))
+#define INST_MISC_IS_TST(inst) ((BITS(inst, 6, 7) != 0x3) && (BITS(inst, 8, 15) == 0x4A))
+#define INST_MISC_IS_LEA(inst) ((BITS(inst, 12, 15) == 0x4) && (BITS(inst, 6, 8) == 0x7))
 #define INST_MISC_IS_RTS(inst) (inst == 0x4E75)
-#define INST_MISC_IS_CLR(inst) (BITS_8_15(inst) == 0x42)
+#define INST_MISC_IS_CLR(inst) (BITS(inst, 8, 15) == 0x42)
 #define INST_MISC_IS_NOP(inst) (inst == 0x4E71)
+#define INST_MISC_IS_MOVEM(inst) (BIT(inst, 11) && (BITS(inst, 7, 9) == 0x1))
+#define INST_MISC_IS_MOVEUSP(inst) (BITS(inst, 4, 15) == 0x4E6)
 
 /* BRANCH */
 #define CONDITION_BRA 0x0
@@ -129,50 +137,50 @@ representing the fake operand in particular
 #define CONDITION_GT 0xE
 #define CONDITION_LE 0xF
 
-#define INST_BITMANIP_IS_ANDI(inst) (BITS_8_15(inst) == 0x2)
-#define INST_BITMANIP_IS_ORI(inst) (BITS_8_15(inst) == 0x0)
-#define INST_BITMANIP_IS_CMPI(inst) (BITS_8_15(inst) == 0xC)
-#define INST_BITMANIP_IS_EORI(inst) (BITS_8_15(inst) == 0xA)
-#define INST_BITMANIP_IS_BTST(inst) ((BITS_6_8(inst) == 0x4) ||\
-					(BITS_6_15(inst) == 0x20))
+#define INST_BITMANIP_IS_ANDI(inst) (BITS(inst, 8, 15) == 0x2)
+#define INST_BITMANIP_IS_ORI(inst) (BITS(inst, 8, 15) == 0x0)
+#define INST_BITMANIP_IS_CMPI(inst) (BITS(inst, 8, 15) == 0xC)
+#define INST_BITMANIP_IS_EORI(inst) (BITS(inst, 8, 15) == 0xA)
+#define INST_BITMANIP_IS_BTST(inst) ((BITS(inst, 6, 8) == 0x4) ||\
+					(BITS(inst, 6, 15) == 0x20))
 
 /* ANDMUL */
 
-#define INST_ANDMUL_IS_MULU(inst) (BITS_6_8(inst) == 0x3)
-#define INST_ANDMUL_IS_ABCD(inst) (BITS_4_8(inst) == 0x10)
-#define INST_ANDMUL_IS_MULS(inst) (BITS_6_8(inst) == 0x7)
-#define INST_ANDMUL_IS_AND(inst) (BITS_6_8(inst) != 0x3)
-#define INST_ANDMUL_IS_EXG(inst) (BITS_8(inst))
+#define INST_ANDMUL_IS_MULU(inst) (BITS(inst, 6, 8) == 0x3)
+#define INST_ANDMUL_IS_ABCD(inst) (BITS(inst, 4, 8) == 0x10)
+#define INST_ANDMUL_IS_MULS(inst) (BITS(inst, 6, 8) == 0x7)
+#define INST_ANDMUL_IS_AND(inst) (BITS(inst, 6, 8) != 0x3)
+#define INST_ANDMUL_IS_EXG(inst) (BIT(inst, 8))
 
 /* ORDIVSBCD */
 
-#define INST_ORDIVSBCD_IS_OR(inst) (BITS_6_8(inst) != 0x3)
+#define INST_ORDIVSBCD_IS_OR(inst) (BITS(inst, 6, 8) != 0x3)
 
 
 /* SHIFTROTBIT */
 #define INST_SHIFTROTBIT_IS_LSD(inst) \
-		(((BITS_6_7(inst) != 0x3) && (BITS_3_4(inst) == 0x1)) || \
-		((BITS_6_7(inst) == 0x3) && (BITS_9_15(inst) == 0x71)))
+		(((BITS(inst, 6, 7) != 0x3) && (BITS(inst, 3, 4) == 0x1)) || \
+		((BITS(inst, 6, 7) == 0x3) && (BITS(inst, 9, 15) == 0x71)))
 #define INST_SHIFTROTBIT_IS_ROD(inst) \
-		((BITS_6_7(inst) != 0x3) && (BITS_3_4(inst) == 0x3))
+		((BITS(inst, 6, 7) != 0x3) && (BITS(inst, 3, 4) == 0x3))
 
 /* ADDQSUBQ */
 
-#define INST_ADDQSUBQ_IS_DBCC(inst) (BITS_3_7(inst) == 0x19)
-#define INST_ADDQSUBQ_IS_ADDQ(inst) (!BITS_8(inst))
-#define INST_ADDQSUBQ_IS_SUBQ(inst) (BITS_8(inst))
+#define INST_ADDQSUBQ_IS_DBCC(inst) (BITS(inst, 3, 7) == 0x19)
+#define INST_ADDQSUBQ_IS_ADDQ(inst) (!BIT(inst, 8))
+#define INST_ADDQSUBQ_IS_SUBQ(inst) (BIT(inst, 8))
 
 /* CMPEOR */
-#define INST_CMPEOR_IS_CMP(inst) (BITS_8(inst) == 0)
-#define INST_CMPEOR_IS_CMPA(inst) (BITS_8(inst) == 1)
+#define INST_CMPEOR_IS_CMP(inst) (BIT(inst, 8) == 0)
+#define INST_CMPEOR_IS_CMPA(inst) (BIT(inst, 8) == 1)
 
 /* ADDADDX */
-#define INST_ADDADDX_IS_ADDA(inst) (BITS_6_7(inst) == 0x3)
-#define INST_ADDADDX_IS_ADD(inst) (BITS_6_7(inst) != 0x3)
+#define INST_ADDADDX_IS_ADDA(inst) (BITS(inst, 6, 7) == 0x3)
+#define INST_ADDADDX_IS_ADD(inst) (BITS(inst, 6, 7) != 0x3)
 #define INST_ADDADDX_IS_ADDX(inst) (0)
 
-#define INST_SUBSUBX_IS_SUBA(inst) (BITS_6_7(inst) == 0x3)
-#define INST_SUBSUBX_IS_SUB(inst) (BITS_6_7(inst) != 0x3)
+#define INST_SUBSUBX_IS_SUBA(inst) (BITS(inst, 6, 7) == 0x3)
+#define INST_SUBSUBX_IS_SUB(inst) (BITS(inst, 6, 7) != 0x3)
 #define INST_SUBSUBX_IS_SUBX(inst) (0)
 
 /* affect the PC by one instruction */
@@ -208,6 +216,10 @@ PM68000_REG_OFF_INCX(m, d, 4, 6)
 /* get the value of a register when you know its type and offset */
 #define PM68000_REG_OFF_VAL(m, regtype, offset) (*(&(m->regtype##0) + offset))
 #define PM68000_REG_OFF_SET(m, regtype, offset, val) (*(&(m->regtype##0) + offset) = val)
+
+/* increment/decrement a register by its enum M68000_REGISTER entry */
+#define PM68000_REG_ENUM_INCX(m, reg, x) (m->register_pointers[reg] += x)
+#define PM68000_REG_ENUM_DECX(m, reg, x) (m->register_pointers[reg] -= x)
 
 #define PM68000_GET_NEXT_INSTRUCTION(m68k, ret_ptr) \
 			PM68000_GET_INSTRUCTION(m68k, 0, ret_ptr)
@@ -472,7 +484,7 @@ struct operand_info
 	/* actual addressing mode */
 	enum ADDRESSING_MODE mode;
 	int size;
-	int reg;
+	enum M68000_REGISTER reg;
 	//glong *reg_ptr;
 	glong address;
 	glong data_int;
@@ -524,4 +536,6 @@ glong m68000_add_sub_generalised(struct m68000 *m68k, glong source, glong dest,
 int m68000_exec_addq_subq_flexible(struct m68000 *m68k, struct memory *mem, gword inst, int opcode);
 int m68000_exec_btst(struct m68000 *m68k, struct memory *mem, gword inst);
 int m68000_exec_nop(struct m68000 *m68k);
+int m68000_exec_movem(struct m68000 *m68k, struct memory *mem, gword inst);
+int m68000_exec_moveusp(struct m68000 *m68k, struct memory *mem, gword inst);
 #endif /* __M68000_H__ */
