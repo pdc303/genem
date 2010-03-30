@@ -1819,7 +1819,7 @@ int m68000_exec_movem(struct m68000 *m68k, struct memory *mem, gword inst)
 	int operation_mode;
 	struct operand_info ea;
 	gword register_mask;
-	int i;
+	int i, action_count;
 
 	dr = BIT(inst, 10);
 
@@ -1829,12 +1829,16 @@ int m68000_exec_movem(struct m68000 *m68k, struct memory *mem, gword inst)
 
 	PM68000_GET_NEXT_INSTRUCTION(m68k, &register_mask);
 
+	action_count = 0;
+
 	for(i = 0; i < 16; i++) {
 		enum M68000_REGISTER reg;
 
 		if(!get_bit(register_mask, i))
 			/* nothing to do for this reg */
 			continue;
+
+		action_count++;
 
 		/* keep calling this so that the inc/decrement is re-performed */
 		m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &ea);
@@ -1870,6 +1874,14 @@ int m68000_exec_movem(struct m68000 *m68k, struct memory *mem, gword inst)
 		}
 	}
 	
+	if(operation_mode == EA_TO_REG) {
+		CC(movem_mem_to_reg_time[ea.mode]);
+	} else {
+		CC(movem_reg_to_mem_time[ea.mode]);
+	}
+
+	CC((ea.size == sizeof(gword) ? 4 : 8) * action_count);
+	
 	return 0;
 }
 
@@ -1890,6 +1902,8 @@ int m68000_exec_moveusp(struct m68000 *m68k, struct memory *mem, gword inst)
 	m68000_register_set(m68k, reg_dst,
 		m68000_register_get(m68k, reg_src, sizeof(glong), 1),
 			sizeof(glong));
+
+	CC(BASE_TIME_MOVEUSP);
 
 	return 0;
 }

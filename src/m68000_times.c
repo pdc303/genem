@@ -20,7 +20,7 @@ int ea_mode_time[ADDRESSING_MODE_COUNT][2] =
 	 4,  8
 };
 /*
-move_time[src mode][dest mode][size] 
+move_time[size][dest mode][src mode] 
 	size = 0 : Byte/Word
 	size = 1: Long
 */
@@ -69,6 +69,30 @@ int lea_time[ADDRESSING_MODE_COUNT] = {
 	[ADDRESSING_MODE_ABS_LONG] = 12,
 	[ADDRESSING_MODE_PC_IND_DISPL] = 8,
 	[ADDRESSING_MODE_PC_IND_INDEX] = 12
+};
+
+/*
+same base time for WORD and LONG.
+But WORD is X+4n, LONG is X+8n
+*/
+int movem_mem_to_reg_time[ADDRESSING_MODE_COUNT] = {
+	[ADDRESSING_MODE_AN_IND] = 12,
+	[ADDRESSING_MODE_AN_IND_POSTINC] = 12,
+	[ADDRESSING_MODE_AN_IND_DISPL] = 16,
+	[ADDRESSING_MODE_AN_IND_INDEX] = 18,
+	[ADDRESSING_MODE_ABS_SHORT] = 16,
+	[ADDRESSING_MODE_ABS_LONG] = 20,
+	[ADDRESSING_MODE_PC_IND_DISPL] = 16,
+	[ADDRESSING_MODE_PC_IND_INDEX] = 18
+};
+
+int movem_reg_to_mem_time[ADDRESSING_MODE_COUNT] = {
+	[ADDRESSING_MODE_AN_IND] = 8,
+	[ADDRESSING_MODE_AN_IND_PREDEC] = 8,
+	[ADDRESSING_MODE_AN_IND_DISPL] = 12,
+	[ADDRESSING_MODE_AN_IND_INDEX] = 14,
+	[ADDRESSING_MODE_ABS_SHORT] = 12,
+	[ADDRESSING_MODE_ABS_LONG] = 16,
 };
 
 /* base times */
@@ -146,4 +170,6 @@ enum BASE_TIME {
 	BASE_TIME_BTST_STATIC_MEM_B = 8, /* BTST, Static bit number, dest=mem */
 	
 	BASE_TIME_NOP = 4,
+
+	BASE_TIME_MOVEUSP = 4,
 };
