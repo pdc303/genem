@@ -40,6 +40,10 @@ int memory_request(struct memory *mem, size_t address, void *n, int size,
 /* XXX: comment */
 int memory_request_multi(struct memory *mem, size_t address, void *n, int size,
 					int num, int convert, gclock_t *cycles);
+gword memory_request_gword(struct memory *mem, size_t address, int convert,
+				gclock_t *cycles);
+glong memory_request_glong(struct memory *mem, size_t address, int convert,
+				gclock_t *cycles);
 int memory_write(struct memory *mem, size_t address, void *n, int size,
 			int convert, gclock_t *cycles);
 /* returns (by pointer) the value at the requested address */

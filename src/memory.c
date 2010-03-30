@@ -1,5 +1,6 @@
 #include <string.h>
 #include <errno.h>
+#include <assert.h>
 
 #include "types.h"
 #include "memory.h"
@@ -11,8 +12,6 @@ int memory_init(struct memory *mem)
 {
 	mem->len = GENESIS_MEMORY_LEN;
 	mem->data = genem_zalloc(mem->len);
-
-
 
 	return 0;
 }
@@ -32,6 +31,30 @@ int memory_request(struct memory *mem, size_t address, void *n, int size,
 	}
 
 	return 0;
+}
+
+gword memory_request_gword(struct memory *mem, size_t address, int convert,
+				gclock_t *cycles)
+{
+	gword out;
+	int r;
+
+	r = memory_request(mem, address, &out, sizeof(gword), convert, cycles);
+	assert(r == 0);
+
+	return out;
+}
+
+glong memory_request_glong(struct memory *mem, size_t address, int convert,
+				gclock_t *cycles)
+{
+	glong out;
+	int r;
+
+	r = memory_request(mem, address, &out, sizeof(glong), convert, cycles);
+	assert(r == 0);
+
+	return out;
 }
 
 int memory_request_multi(struct memory *mem, size_t address, void *n, int size,
