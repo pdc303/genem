@@ -45,3 +45,15 @@ size_t read_file(const char *filename, byte *buf, size_t max_len)
 
 	return n;
 }
+
+unsigned long now_usec()
+{
+#ifdef OS_LINUX
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return tv.tv_usec + (tv.tv_sec * 1000000);
+#else
+	NOFUNC();
+#endif
+
+}

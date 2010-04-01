@@ -22,6 +22,12 @@ These are #defines we may get from gcc.
 	#define OS_LINUX
 #endif
 
+/* platform specific includes */
+#ifdef OS_LINUX
+#include <sys/time.h>
+#include <unistd.h>
+#endif
+
 /* Define newline sequence. Only Windows is different */
 
 #ifdef OS_WIN
@@ -30,9 +36,19 @@ These are #defines we may get from gcc.
 	#define EOL_STRING "\n"
 #endif
 
+/* microsecond-accurate sleep */
+
+#ifdef OS_LINUX
+	#define sleep_usec(n) usleep(n)
+#else
+	dbg_f("No usleep set up for this platform");
+#endif
+
 #define NOFUNC() dbg_f("This platform has no support for function: %s", __func__)
 
 size_t get_file_size(const char *filename);
 size_t read_file(const char *filename, byte *buf, size_t max_len);
+/* current time in usecs */
+unsigned long now_usec();
 
 #endif
