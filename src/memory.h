@@ -30,6 +30,8 @@ struct memory
 };
 
 int memory_init(struct memory *mem);
+int memory_write_wrapper(struct memory *mem, size_t address, glong val, int size,
+                        int convert, gclock_t *cycles);
 /*
 sets the memory pointed to by 'n' to the data at the given memory address.
 'size' bytes will be written so 'n' must have enough bytes allocated.

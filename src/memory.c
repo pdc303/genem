@@ -72,6 +72,13 @@ int memory_request_multi(struct memory *mem, size_t address, void *n, int size,
 	return result;
 }
 
+/* a non-destructive memory-write function. memory_write alters the source val */
+int memory_write_wrapper(struct memory *mem, size_t address, glong val, int size,
+			int convert, gclock_t *cycles)
+{
+	return memory_write(mem, address, &val, size, convert, cycles);
+}
+
 int memory_write(struct memory *mem, size_t address, void *n, int size,
 			int convert, gclock_t *cycles)
 {
@@ -83,6 +90,11 @@ int memory_write(struct memory *mem, size_t address, void *n, int size,
 	
 	if(convert) {
 		swap_bytes(n, size);
+	}
+
+	if((address >= 0xC00000) && (address <= 0xDFFFFF)) {
+		static int vdp_write_count = 0;
+		dbg_i("Write: VDP @ 0x%x  (%d)\n", address, ++vdp_write_count);
 	}
 	
 	memcpy(PMEMORY_DATA(mem) + address, n, size);
