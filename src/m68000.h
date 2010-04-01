@@ -6,9 +6,11 @@
 #include "stack.h"
 #include "bitman.h"
 
-#ifndef M68000_MHZ
-#define M68000_MHZ 4.00
+#ifndef M68000_HZ
+#define M68000_HZ 8000000ul
 #endif
+
+#define M68000_INSTRUCTIONS_CHUNK (M68000_HZ)
 
 /* the location of the first item in the system stack */
 #define SYSTEM_STACK_POS (GENESIS_MEMORY_LEN - sizeof(glong))
@@ -490,6 +492,11 @@ struct operand_info
 	glong data_int;
 };
 
+#include "world.h"
+
+int m68000_start(struct world *w);
+void * m68000_main_thread(void *z);
+void m68000_expend_cycles(struct m68000 *m68k, struct memory *mem, gclock_t cycles);
 /* initialise an m68k to an all-zero state */
 int m68000_init(struct m68000 *m68k);
 /* initialise the register pointers array for this m68k */

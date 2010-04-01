@@ -11,6 +11,10 @@
 #include "debug.h"
 #include "sysutil.h"
 #include "bitman.h"
+#include "world.h"
+#include "thread.h"
+#include "throttle.h"
+#include "sysutil.h"
 
 const char* opcode_names[256] =
 {
@@ -47,6 +51,65 @@ const char* opcode_names[256] =
 	[OPCODE_MOVEM] = "MOVEM",
 	[OPCODE_MOVEUSP] = "MOVE USP",
 };
+
+int m68000_start(struct world *w)
+{
+	w->thread_m68k = genem_thread_create(m68000_main_thread, w);
+
+	return 0;
+}
+
+void * m68000_main_thread(void *z)
+{
+	struct world *w = z;
+	struct m68000 *m68k = PWORLD_PM68K(w);
+	struct memory *mem = PWORLD_PMEM(w);
+	struct throttle th;
+	unsigned long target_usec;
+
+	/* target microseconds per chunk of instructions */
+	target_usec = (1.00 / M68000_HZ) * 1000000 * M68000_INSTRUCTIONS_CHUNK;
+
+	throttle_init(&th, target_usec);
+
+	while(!w->shutdown) {
+		unsigned long usa, usb;
+		double secs, mhz;
+		usa = now_usec();
+		m68000_expend_cycles(m68k, mem, M68000_INSTRUCTIONS_CHUNK);
+		throttle(&th);
+		usb = now_usec();
+		secs = (usb - usa) / 1000000.0;
+		mhz = (M68000_INSTRUCTIONS_CHUNK / secs) / 1000000.0;
+	//	printf("Secs: %.2f\n", secs);
+	//	printf("mhz: %.2f\n", mhz);
+	}
+
+	m68k = m68k;
+	mem = mem;
+
+	return NULL;
+}
+
+void m68000_expend_cycles(struct m68000 *m68k, struct memory *mem, gclock_t cycles)
+{
+	m68k->cycles = 0;
+
+	while(m68k->cycles < cycles) {
+		gclock_t ca, cb;
+		ca = m68k->cycles;
+
+		dbg_i("PC: 0x%X", (int) m68k->pc);
+
+		m68000_exec(m68k, mem);
+		
+		cb = m68k->cycles;
+
+		if(cb <= ca) {
+			dbg_w("Instruction used no cycles");
+		}
+	}
+}
 
 int m68000_init(struct m68000 *m68k)
 {
@@ -338,10 +401,9 @@ int m68000_exec_move(struct m68000 *m68k, struct memory *mem, gword inst, int si
 	result = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_DEST, &dest);
 	m68000_inst_set_operand_dest(m68k, mem, &dest, source_val);
 	
-	switch(dest.type) {
-		case OPERAND_TYPE_IMMEDIATE:
-			dbg_f("Immediate data destination invaid for MOVE");
-			break;
+	if(dest.type == OPERAND_TYPE_IMMEDIATE) {
+		dbg_f("Immediate data destination invaid for MOVE");
+		return -1;
 	}
 
 	/* set flags */
@@ -513,7 +575,7 @@ int m68000_inst_get_operand_source_val(struct m68000 *m68k, struct memory *mem,
 	
 	switch(oi->type) {
 		case OPERAND_TYPE_REGISTER:
-			source_val = *(gword *) m68k->register_pointers[oi->reg];
+			source_val = *(long *) m68k->register_pointers[oi->reg];
 			break;
 		case OPERAND_TYPE_INDIRECT:
 			memory_request(mem, oi->address, &source_val, oi->size, 1, &m68k->cycles);
@@ -531,7 +593,8 @@ int m68000_inst_get_operand_source_val(struct m68000 *m68k, struct memory *mem,
 
 	source_val = glong_crop(source_val, oi->size);
 
-	return decode_2c(source_val, oi->size);
+	//return decode_2c(source_val, oi->size);
+	return source_val;
 }
 
 int m68000_inst_set_operand_dest(struct m68000 *m68k, struct memory *mem,
@@ -543,7 +606,7 @@ int m68000_inst_set_operand_dest(struct m68000 *m68k, struct memory *mem,
 			m68000_register_set(m68k, oi->reg, val, oi->size);
 			break;
 		case OPERAND_TYPE_INDIRECT:
-			memory_write(mem, oi->address, &val, oi->size, 1, &m68k->cycles);
+			memory_write_wrapper(mem, oi->address, val, oi->size, 1, &m68k->cycles);
 			break;
 		case OPERAND_TYPE_IMMEDIATE:
 			dbg_e("Immediate data destination invaid");
@@ -768,7 +831,7 @@ int m68000_exec_branch(struct m68000 *m68k, struct memory *mem, gword inst)
 			*/
 			
 			/* put the value on the stack */
-			memory_write(mem, m68k->a7, &future_pc, sizeof(glong), 1, NULL);
+			memory_write_wrapper(mem, m68k->a7, future_pc, sizeof(glong), 1, NULL);
 			m68k->a7 -= sizeof(glong);
 			/* fall through */
 			}
@@ -818,7 +881,6 @@ int m68000_exec_dbcc(struct m68000 *m68k, struct memory *mem, gword inst)
 	int condition;
 	glong displacement, displacement_base;
 	int condition_true;
-	int displacement_size;
 	enum M68000_REGISTER reg;
 	glong new_val;
 
@@ -969,8 +1031,6 @@ int m68000_exec_andi_ori_flexible(struct m68000 *m68k, struct memory *mem, gword
 	int result;
 	struct operand_info dest;
 	glong source_val, dest_val;
-
-	gword instx[2];
 
 	dest.size = 0;
 	result = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &dest);
@@ -1231,7 +1291,7 @@ int m68000_exec_lsd(struct m68000 *m68k, struct memory *mem, gword inst)
 	
 	dr = BIT(inst, 8);
 
-	if(BITS(inst, 6, 7) == 0x3, 6, 7) {
+	if(BITS(inst, 6, 7) == 0x3) {
 		shift_type = LSD_MEMORY_SHIFT;
 	} else {
 		shift_type = LSD_REGISTER_SHIFT;
@@ -1425,12 +1485,14 @@ int m68000_exec_rts(struct m68000 *m68k, struct memory *mem)
 	m68k->pc = popped;
 	
 	CC(BASE_TIME_RTS);
+
+	return 0;
 }
 
 int m68000_exec_clr(struct m68000 *m68k, struct memory *mem, gword inst)
 {
 	struct operand_info ea;
-	int result, size;
+	int result;
 
 	ea.size = 0;
 	result = m68000_inst_get_operand_info(m68k, mem, inst, OPERAND_ONE, &ea);
@@ -1448,6 +1510,8 @@ int m68000_exec_clr(struct m68000 *m68k, struct memory *mem, gword inst)
 	} else {
 		CC(ea.size == sizeof(glong) ? BASE_TIME_CLR_MEM_L : BASE_TIME_CLR_MEM_BW);
 	}
+
+	return 0;
 }
 
 int m68000_exec_cmp_flexible(struct m68000 *m68k, struct memory *mem, gword inst, int opcode)
@@ -1539,6 +1603,8 @@ glong m68000_eor_generalised(struct m68000 *m68k, glong src, glong dest, int siz
 	CCR_Z_SETX(m68k->status, out == 0);
 	CCR_V_UNSET(m68k->status);
 	CCR_C_UNSET(m68k->status);
+
+	return 0;
 }
 
 int m68000_exec_eori(struct m68000 *m68k, struct memory *mem, gword inst)
@@ -1692,7 +1758,7 @@ glong m68000_add_sub_generalised(struct m68000 *m68k, glong source, glong dest,
 		if(opcode == OPCODE_ADD) {
 			result = dest + source;
 		} else {
-			result = result - dest;
+			result = dest - source;
 		}
 		gresult = result;
 	}
@@ -1811,6 +1877,7 @@ int m68000_exec_btst(struct m68000 *m68k, struct memory *mem, gword inst)
 int m68000_exec_nop(struct m68000 *m68k)
 {
 	CC(BASE_TIME_NOP);
+	return 0;
 }
 
 int m68000_exec_movem(struct m68000 *m68k, struct memory *mem, gword inst)
